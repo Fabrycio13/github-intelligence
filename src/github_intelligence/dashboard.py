@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock
 from typing import Any, Protocol
+from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
 from pydantic import ValidationError
@@ -29,6 +30,11 @@ _ASSETS = Path(__file__).parent / "dashboard_assets"
 class Store(Protocol):
     def list_repositories(self) -> list[dict[str, Any]]: ...
     def get_report(self, report_id: UUID) -> dict[str, Any] | None: ...
+    def list_reports(
+        self, *, repository_id: UUID | None = None, limit: int = 20, offset: int = 0,
+    ) -> dict[str, Any]: ...
+    def get_report_details(self, report_id: UUID) -> dict[str, Any] | None: ...
+    def get_dashboard(self) -> dict[str, Any]: ...
 
 
 class DashboardError(Exception):
@@ -130,26 +136,84 @@ def make_server(app: DashboardApp, *, port: int = 8765) -> ThreadingHTTPServer:
         def do_GET(self) -> None:
             try:
                 self.check_host()
-                if self.path in {"/", "/app.js", "/app.css"}:
+                try:
+                    if len(self.path) > 4096:
+                        raise ValueError
+                    url = urlsplit(self.path)
+                    path = url.path
+                    params = parse_qs(
+                        url.query, keep_blank_values=True, strict_parsing=True, max_num_fields=10,
+                    )
+                    allowed = (
+                        {"repository_id", "limit", "offset"}
+                        if path == "/api/reports"
+                        else ({"v"} if path in {"/app.css", "/app.js"} else set())
+                    )
+                    if url.scheme or url.netloc or url.fragment or set(params) - allowed:
+                        raise ValueError
+                    if any(len(values) != 1 for values in params.values()):
+                        raise ValueError
+                except ValueError:
+                    raise DashboardError(400, "Parâmetros de consulta inválidos.") from None
+                if path in {"/", "/app.js", "/app.css", "/bg.jpg", "/bg.webp", "/logo.png", "/logo-icon.png"}:
+                    if path in {"/bg.jpg", "/bg.webp", "/logo.png", "/logo-icon.png"}:
+                        file_map = {
+                            "/bg.jpg": ("bg.jpg", "image/jpeg"),
+                            "/bg.webp": ("bg.webp", "image/webp"),
+                            "/logo.png": ("logo.png", "image/png"),
+                            "/logo-icon.png": ("logo-icon.png", "image/png"),
+                        }
+                        filename, content_type = file_map[path]
+                        image_file = _ASSETS / filename
+                        if image_file.exists():
+                            self.send(200, image_file.read_bytes(), content_type)
+                            return
+                        raise DashboardError(404, "Arquivo não encontrado.")
                     name, content_type = {
                         "/": ("index.html", "text/html; charset=utf-8"),
                         "/app.js": ("app.js", "text/javascript; charset=utf-8"),
                         "/app.css": ("app.css", "text/css; charset=utf-8"),
-                    }[self.path]
+                    }[path]
                     text = (_ASSETS / name).read_text(encoding="utf-8")
                     self.send(200, text.replace("__REQUEST_TOKEN__", app.token).encode("utf-8"), content_type)
-                elif self.path == "/favicon.ico":
+                elif path == "/favicon.ico":
                     self.send(204, b"", "image/x-icon")
-                elif self.path == "/api/repositories":
+                elif path == "/api/repositories":
                     self.json(200, {
                         "repositories": app.store.list_repositories(), "updating": app.lock.locked(),
                     })
-                elif self.path.startswith("/api/reports/"):
+                elif path == "/api/reports":
                     try:
-                        report_id = UUID(self.path.removeprefix("/api/reports/"))
+                        limit_text = params.get("limit", ["20"])[0]
+                        offset_text = params.get("offset", ["0"])[0]
+                        if not all(text.isascii() and text.isdigit() for text in (limit_text, offset_text)):
+                            raise ValueError
+                        limit, offset = int(limit_text), int(offset_text)
+                        if not 1 <= limit <= 100 or not 0 <= offset <= 1_000_000:
+                            raise ValueError
+                        repository_id = (
+                            UUID(params["repository_id"][0]) if "repository_id" in params else None
+                        )
+                    except ValueError:
+                        raise DashboardError(400, "Filtro ou paginação inválidos.") from None
+                    self.json(200, app.store.list_reports(
+                        repository_id=repository_id, limit=limit, offset=offset,
+                    ))
+                elif path == "/api/dashboard":
+                    self.json(200, app.store.get_dashboard())
+                elif path.startswith("/api/reports/"):
+                    details = path.endswith("/details")
+                    identifier = path.removeprefix("/api/reports/")
+                    if details:
+                        identifier = identifier.removesuffix("/details")
+                    try:
+                        report_id = UUID(identifier)
                     except ValueError:
                         raise DashboardError(400, "Identificador de relatório inválido.") from None
-                    report = app.store.get_report(report_id)
+                    report = (
+                        app.store.get_report_details(report_id)
+                        if details else app.store.get_report(report_id)
+                    )
                     if report is None:
                         raise DashboardError(404, "Relatório não encontrado neste projeto.")
                     self.json(200, report)

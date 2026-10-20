@@ -77,3 +77,32 @@ def test_setup_refuses_to_overwrite_config_before_connecting(tmp_path, monkeypat
         )
     connector.assert_not_called()
     assert config.read_text() == "existing"
+
+
+def test_main_routes_pooler_user(tmp_path, monkeypatch):
+    import sys
+
+    from github_intelligence import db_setup
+
+    saved = []
+    @contextmanager
+    def fake_connect(settings):
+        yield object()
+
+    monkeypatch.setattr(db_setup, "connect_database", fake_connect)
+    monkeypatch.setattr(db_setup, "check_database", lambda conn: None)
+    monkeypatch.setattr(db_setup, "save_verified_connection", lambda s, c, sec: saved.append(s))
+    monkeypatch.setattr(db_setup.DatabaseSettings, "from_environment", lambda env, config_path=None: saved[0])
+    monkeypatch.setenv("GHI_SETUP_PASSWORD", "test-pass")
+    monkeypatch.setattr(sys, "argv", [
+        "db_setup.py",
+        "--host", "aws-0-sa-east-1.pooler.supabase.com",
+        "--project-ref", "cpkgvpuivjzplerzlpxz",
+        "--sslrootcert", "system",
+    ])
+    monkeypatch.setattr(db_setup.Path, "exists", lambda self: False)
+
+    code = db_setup.main()
+    assert code == 0
+    assert len(saved) == 1
+    assert saved[0].user == "github_intelligence_worker.cpkgvpuivjzplerzlpxz"

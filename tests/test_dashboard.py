@@ -13,6 +13,17 @@ REPORT = "00000000-0000-0000-0000-000000000002"
 
 
 class Store:
+    def list_reports(self, *, repository_id=None, limit=20, offset=0):
+        return {"reports": [], "repository_options": [], "total": 0, "limit": limit, "offset": offset,
+                "filter": str(repository_id) if repository_id else None}
+
+    def get_dashboard(self):
+        return {"connected_repositories": 1, "total_reports": 0}
+
+    def get_report_details(self, report_id):
+        report = self.get_report(report_id)
+        return {**report, "repositories": [], "window_start": None, "window_end": None} if report else None
+
     def list_repositories(self):
         return [{"id": REPO, "full_name": "owner/repo", "status": "active",
                  "installation_status": "active", "last_status": "succeeded", "report_id": REPORT}]
@@ -62,6 +73,50 @@ def test_browser_favicon_request_does_not_fail_or_trigger_collection():
         response = client.get("/favicon.ico")
         assert response.status_code == 204
         assert response.content == b""
+        assert writes == []
+
+
+def test_read_only_history_summary_and_details_routes_preserve_original_report():
+    with running() as (_, client, writes):
+        assert client.get("/api/reports").json() == {
+            "reports": [], "repository_options": [], "total": 0, "limit": 20, "offset": 0, "filter": None,
+        }
+        assert client.get(f"/api/reports?repository_id={REPO}&limit=5&offset=10").json() == {
+            "reports": [], "repository_options": [], "total": 0, "limit": 5, "offset": 10, "filter": REPO,
+        }
+        assert client.get("/api/dashboard").json() == {"connected_repositories": 1, "total_reports": 0}
+        assert client.get(f"/api/reports/{REPORT}/details").json()["repositories"] == []
+        assert client.get(f"/api/reports/{REPORT}").json() == Store().get_report(UUID(REPORT))
+        assert client.get(f"/api/reports/{REPO}/details").status_code == 404
+        for path in (
+            "/api/reports?limit=0", "/api/reports?limit=101", "/api/reports?offset=-1",
+            "/api/reports?offset=1000001", "/api/reports?limit=x", "/api/reports?limit=",
+            "/api/reports?repository_id=bad", "/api/reports?repository_id=",
+            "/api/reports?limit=2&limit=3", "/api/reports?unknown=1",
+            "/api/reports?repository_id=" + REPO + "&repository_id=" + REPO,
+            "/api/dashboard?limit=1", f"/api/reports/{REPORT}/details?x=1",
+            f"/api/reports/{REPORT}?x=1", "/api/reports/not-a-uuid/details",
+        ):
+            assert client.get(path).status_code == 400, path
+        assert client.get("/api/dashboard", headers={"Host": "evil.test"}).status_code == 403
+        assert writes == []
+
+
+def test_read_only_endpoints_report_storage_failure_instead_of_zero(monkeypatch):
+    from github_intelligence.storage import StorageError
+
+    def unavailable(*args, **kwargs):
+        raise StorageError("sensitive driver diagnostic")
+
+    with running() as (app, client, writes):
+        for method in ("list_reports", "get_dashboard", "get_report_details"):
+            monkeypatch.setattr(app.store, method, unavailable)
+        for path in ("/api/reports", "/api/dashboard", f"/api/reports/{REPORT}/details"):
+            response = client.get(path)
+            assert response.status_code == 503
+            assert set(response.json()) == {"error"}
+            assert "sensitive" not in response.text
+            assert "Content-Security-Policy" in response.headers
         assert writes == []
 
 

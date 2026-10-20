@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "source": "project-memory stage 1 runtime",
+  "files": {
+    "schema.mjs": {
+      "sha256": "d713587276586b9ffe2280468f5707e6ecde24ab4a3de1b32cb1b1b6128dcbbb"
+    },
+    "store.mjs": {
+      "sha256": "b2ab5cca22b53b1d636f7f01ef38aa83b893a195f855e76e84e13e8c3c6f00be"
+    },
+    "search.mjs": {
+      "sha256": "698e05a7e18c3c08752a473b535fef54dea282037a14cc17769b4825d53b14c5"
+    },
+    "lifecycle.mjs": {
+      "sha256": "647cbfbffa989cbbf0388e6383a6d141b0b3abdd843bdb4620dc32bbc6b1434c"
+    }
+  }
+}

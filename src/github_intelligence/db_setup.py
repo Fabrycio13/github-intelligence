@@ -8,7 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from github_intelligence.config import ConfigurationError
-from github_intelligence.database import DatabaseSettings, connect_database
+from github_intelligence.database import _POOLER, _WORKER, DatabaseSettings, connect_database
 from github_intelligence.db_health import check_database
 from github_intelligence.secrets import SecretError, protect_private_key
 from github_intelligence.storage import StorageError
@@ -51,8 +51,9 @@ def main() -> int:
         password = os.environ.pop("GHI_SETUP_PASSWORD", None)
         if password is None:
             password = getpass.getpass("Senha do worker: ")
+        user = f"{_WORKER}.{args.project_ref}" if _POOLER.fullmatch(args.host) else _WORKER
         settings = DatabaseSettings(
-            host=args.host, user="github_intelligence_worker", project_ref=args.project_ref,
+            host=args.host, user=user, project_ref=args.project_ref,
             password=password, sslrootcert=args.sslrootcert,
         )
         secret = Path.home() / ".github-intelligence" / f"worker-{uuid4().hex}.dpapi"

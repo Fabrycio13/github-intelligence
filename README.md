@@ -4,7 +4,7 @@ Coleta somente leitura do GitHub, avaliação determinística e relatório Markd
 
 ## Estado da entrega
 
-O piloto tem CLI e painel local mínimo: repositórios provisionados, última coleta, relatório salvo e atualização manual confirmada. Ainda não há hospedagem, autenticação de usuários finais, scheduler, envio de e-mail ou integração com IA. A conexão e persistência em PostgreSQL/Supabase usam schema e papel runtime restritos; o painel é para o operador local, não uma aplicação multiusuário de produção.
+O piloto tem CLI e painel local com sidebar: Dashboard com indicadores e gráficos, Repositórios com cadastro em modal e coleta manual confirmada, e Análises com histórico paginado e filtro por repositório. Ainda não há exportação PDF, hospedagem, autenticação de usuários finais, scheduler, envio de e-mail ou integração com IA. A conexão e persistência em PostgreSQL/Supabase usam schema e papel runtime restritos; o painel é para o operador local, não uma aplicação multiusuário de produção.
 
 O alvo inicial é `Fabrycio13/project-mds`. A API pública confirmou em 19/10/2026 que ele é público. A GitHub App foi instalada e o acesso privado a `Fabrycio13/skills` foi validado, inclusive pela CLI com chave criptografada; detalhes em `docs/github-app-setup.md`. Não há fallback anônimo silencioso: o modo público exige `--public`.
 
@@ -13,6 +13,8 @@ O alvo inicial é `Fabrycio13/project-mds`. A API pública confirmou em 19/10/20
 **Continuar em outro PC:** siga [docs/continuar-em-outro-pc.md](docs/continuar-em-outro-pc.md). Configurações e credenciais deste Windows não são publicadas no Git; o documento registra o estado atual e os passos para retomada.
 
 Para abrir o painel já configurado, execute `uv run python -m github_intelligence.dashboard` na raiz ou abra `start-dashboard.cmd`. O endereço é `http://127.0.0.1:8765`. Consultar a tela não inicia coleta; **Atualizar agora** pede confirmação antes de gravar. Configuração e limites em `docs/dashboard.md`.
+
+O painel carrega os dados iniciais com progresso por etapas e os reutiliza na navegação. Cadastro/coleta atualizam as leituras afetadas; mudanças feitas em outra janela ou pela CLI exigem **Recarregar dados**. Novos filtros, páginas e detalhes são carregados na primeira consulta. Não há atualização automática em segundo plano.
 
 Requisitos: Python >=3.11 e uv. Execute na raiz do projeto, em Git Bash:
 
@@ -23,6 +25,8 @@ uv run mypy
 uv run ruff check src tests
 uv run github-intelligence --help
 ```
+
+Para verificar a navegação do painel sem instalar dependências JavaScript, com Node.js disponível: `node --test tests/dashboard_routes.test.cjs`. Esses testes isolam rotas e retorno; a renderização e as interações também precisam de smoke em navegador.
 
 `uv.lock` fixa o ambiente resolvido. Não use o `pip` global, que pode apontar para outro Python. Para um checkout novo, copie `config/repositories.example.json` para `config/repositories.json` (a configuração real é local e ignorada pelo Git).
 
