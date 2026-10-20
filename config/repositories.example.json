@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "repositories": [
+    {
+      "full_name": "Fabrycio13/project-mds",
+      "client_id": "personal",
+      "project_id": "pilot",
+      "status": "active",
+      "staging_branch": null,
+      "required_approvals": 2
+    }
+  ]
+}

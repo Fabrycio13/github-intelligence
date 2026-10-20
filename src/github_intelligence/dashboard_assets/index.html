@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="request-token" content="__REQUEST_TOKEN__">
+<title>GitHub Intelligence</title>
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<main>
+<header><h1>GitHub Intelligence</h1><p>Projeto piloto · Painel local</p></header>
+<p class="notice">GitHub somente leitura. Uma nova coleta só é gravada quando você confirma <strong>Atualizar agora</strong>.</p>
+<div class="toolbar"><h2>Repositórios monitorados</h2><div class="actions"><button id="add-repository" type="button" aria-expanded="false" aria-controls="onboarding">Adicionar repositório</button><button id="reload" type="button">Recarregar dados</button></div></div>
+<section id="onboarding" hidden aria-labelledby="onboarding-title">
+<h2 id="onboarding-title">Adicionar repositório</h2>
+<p>Cole o link. O acesso será verificado pela GitHub App antes de vincular. Não será iniciada uma coleta.</p>
+<form id="inspect-form"><label for="repository-link">Link do repositório ou OWNER/REPO<input id="repository-link" name="link" type="text" maxlength="512" required placeholder="https://github.com/conta/repositorio" autocomplete="off" spellcheck="false"></label><button id="inspect-repository" type="submit">Verificar acesso</button></form>
+<p id="onboarding-message" role="status" aria-live="polite"></p>
+<div id="onboarding-result" class="actions"></div>
+</section>
+<p id="message" role="status" aria-live="polite">Carregando dados do projeto…</p>
+<div id="repositories"></div>
+<section id="report" hidden aria-labelledby="report-title">
+<div class="toolbar"><h2 id="report-title">Relatório salvo</h2><button id="close-report" type="button">Fechar relatório</button></div>
+<p id="report-status"></p><pre id="report-content"></pre>
+</section>
+<footer>Sem agendamento, IA ou atualização automática. Merge não comprova deploy ou validação funcional.</footer>
+</main>
+</body>
+</html>

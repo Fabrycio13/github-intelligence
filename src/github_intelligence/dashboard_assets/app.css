@@ -1,0 +1,23 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0; }
+main { max-width: 1120px; margin: 0 auto; padding: 32px 24px; }
+h1 { font-size: 26px; margin: 0; }
+h2 { font-size: 18px; }
+h3 { margin: 0 0 12px; font-size: 18px; overflow-wrap: anywhere; }
+header p, footer { opacity: .7; }
+.notice { padding: 14px; border: 1px solid #8886; border-radius: 6px; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+button, input { font: inherit; padding: 9px 12px; border: 1px solid #8888; border-radius: 5px; }
+button { cursor: pointer; }
+button:disabled { cursor: wait; opacity: .55; }
+article { border: 1px solid #8886; border-radius: 6px; padding: 20px; margin-bottom: 16px; }
+dl { display: grid; grid-template-columns: 170px 1fr; gap: 8px 16px; }
+dt { opacity: .7; } dd { margin: 0; overflow-wrap: anywhere; }
+form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-top: 18px; }
+label { display: grid; gap: 6px; font-size: 14px; }
+.actions { display: flex; gap: 12px; flex-wrap: wrap; }
+#message { min-height: 24px; } #message[data-error="true"] { color: light-dark(#a52020, #ffaaaa); }
+#report { margin-top: 24px; border-top: 1px solid #8886; padding-top: 16px; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.7 ui-monospace, monospace; padding: 20px; border: 1px solid #8886; border-radius: 6px; }
+footer { margin-top: 32px; font-size: 13px; }
+@media (max-width: 600px) { main { padding: 20px 14px; } dl { grid-template-columns: 1fr; gap: 4px; } dd { margin-bottom: 10px; } input { max-width: 90%; } }
