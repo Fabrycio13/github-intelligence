@@ -7,40 +7,47 @@
 <title>GitHub Intelligence</title>
 <link rel="icon" type="image/png" href="/logo-icon.png">
 
-<link rel="stylesheet" href="/app.css?v=7">
-<script src="/app.js?v=7" defer></script>
+<link rel="stylesheet" href="/app.css?v=8">
+<script src="/app.js?v=8" defer></script>
 <style id="loading-splash-style">
   #initial-loading.initial-loading,
   .initial-loading {
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    z-index: 99999 !important;
-    background: #0d1117 !important;
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    justify-content: center !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    transition: opacity 0.35s ease, transform 0.35s ease !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 99999;
+    background: #0d1117;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    margin: 0;
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  #initial-loading[hidden],
+  .initial-loading[hidden] {
+    display: none !important;
+    pointer-events: none !important;
+    visibility: hidden !important;
+    z-index: -99999 !important;
   }
   .loading-container {
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: 14px !important;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
   }
   .loading-mascot-box {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    animation: mascotFloat 2s ease-in-out infinite !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: mascotFloat 2s ease-in-out infinite;
   }
   @keyframes mascotFloat {
     0%, 100% {
@@ -53,41 +60,41 @@
     }
   }
   .loading-simple {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    gap: 8px !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
   }
   .loading-label {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-    font-size: 17px !important;
-    font-weight: 500 !important;
-    color: #e6edf3 !important;
-    letter-spacing: 0.5px !important;
-    line-height: 1 !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 17px;
+    font-weight: 500;
+    color: #e6edf3;
+    letter-spacing: 0.5px;
+    line-height: 1;
   }
   .loading-dots {
-    display: inline-flex !important;
-    align-items: center !important;
-    gap: 5px !important;
-    height: 18px !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 18px;
   }
   .loading-dots .dot {
-    width: 5.5px !important;
-    height: 5.5px !important;
+    width: 5.5px;
+    height: 5.5px;
     border-radius: 50% !important;
-    background-color: #38bdf8 !important;
-    display: inline-block !important;
-    animation: dotBounce 1.4s infinite ease-in-out both !important;
+    background-color: #38bdf8;
+    display: inline-block;
+    animation: dotBounce 1.4s infinite ease-in-out both;
   }
   .loading-dots .dot:nth-child(1) {
-    animation-delay: -0.32s !important;
+    animation-delay: -0.32s;
   }
   .loading-dots .dot:nth-child(2) {
-    animation-delay: -0.16s !important;
+    animation-delay: -0.16s;
   }
   .loading-dots .dot:nth-child(3) {
-    animation-delay: 0s !important;
+    animation-delay: 0s;
   }
   @keyframes dotBounce {
     0%, 80%, 100% {
@@ -104,7 +111,7 @@
 <body>
 
 <!-- Loading Splash Centralizado: Mascote Git Cat + Loading com 3 bolinhas -->
-<div id="initial-loading" class="initial-loading" style="position:fixed; top:0; left:0; width:100vw; height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#0d1117; z-index:99999;">
+<div id="initial-loading" class="initial-loading">
   <div class="loading-container">
     <div class="loading-mascot-box">
       <img src="/logo-icon.svg" alt="" width="56" height="56" class="loading-mascot" aria-hidden="true">

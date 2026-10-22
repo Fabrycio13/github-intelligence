@@ -418,11 +418,13 @@ function initLoading() {
   function dismiss() {
     if (isClosed) return;
     isClosed = true;
+    loading.style.pointerEvents = 'none';
     loading.style.transition = 'opacity 0.45s ease, transform 0.45s ease';
     loading.style.opacity = '0';
     loading.style.transform = 'scale(0.96)';
     setTimeout(() => {
       loading.hidden = true;
+      loading.style.display = 'none';
       if (appShell) appShell.hidden = false;
       const main = document.querySelector('#main-content');
       if (main) main.focus({ preventScroll: true });
@@ -449,11 +451,13 @@ function showApp() {
   const loading = document.querySelector('#initial-loading');
   const appShell = document.querySelector('#app-shell');
   if (loading && appShell) {
+    loading.style.pointerEvents = 'none';
     loading.style.transition = 'opacity 0.45s ease, transform 0.45s ease';
     loading.style.opacity = '0';
     loading.style.transform = 'scale(0.96)';
     setTimeout(() => {
       loading.hidden = true;
+      loading.style.display = 'none';
       appShell.hidden = false;
       const main = document.querySelector('#main-content');
       if (main) main.focus({ preventScroll: true });
