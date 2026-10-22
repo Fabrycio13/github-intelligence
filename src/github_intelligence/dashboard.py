@@ -155,13 +155,23 @@ def make_server(app: DashboardApp, *, port: int = 8765) -> ThreadingHTTPServer:
                         raise ValueError
                 except ValueError:
                     raise DashboardError(400, "Parâmetros de consulta inválidos.") from None
-                if path in {"/", "/app.js", "/app.css", "/bg.jpg", "/bg.webp", "/logo.png", "/logo-icon.png"}:
-                    if path in {"/bg.jpg", "/bg.webp", "/logo.png", "/logo-icon.png"}:
+                static_paths = {
+                    "/", "/app.js", "/app.css", "/bg.jpg", "/bg.webp",
+                    "/logo.png", "/logo-icon.png", "/logo.svg", "/logo-icon.svg",
+                }
+                if path in static_paths:
+                    image_paths = {
+                        "/bg.jpg", "/bg.webp", "/logo.png",
+                        "/logo-icon.png", "/logo.svg", "/logo-icon.svg",
+                    }
+                    if path in image_paths:
                         file_map = {
                             "/bg.jpg": ("bg.jpg", "image/jpeg"),
                             "/bg.webp": ("bg.webp", "image/webp"),
                             "/logo.png": ("logo.png", "image/png"),
                             "/logo-icon.png": ("logo-icon.png", "image/png"),
+                            "/logo.svg": ("logo.svg", "image/svg+xml"),
+                            "/logo-icon.svg": ("logo-icon.svg", "image/svg+xml"),
                         }
                         filename, content_type = file_map[path]
                         image_file = _ASSETS / filename
