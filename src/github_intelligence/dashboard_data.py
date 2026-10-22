@@ -14,7 +14,9 @@ from github_intelligence.storage import ProjectScope, project_transaction
 # Reports are selected before sources: multiple snapshots never multiply totals.
 _HISTORY_CTE = """
 WITH scoped_reports AS (
-    SELECT report.* FROM github_intelligence.reports report
+    SELECT report.id,report.client_id,report.project_id,report.complete,
+           report.generated_at,report.window_start,report.window_end
+    FROM github_intelligence.reports report
     JOIN github_intelligence.projects p
       ON (p.client_id,p.id)=(report.client_id,report.project_id)
     JOIN github_intelligence.clients c ON c.id=report.client_id
@@ -79,29 +81,70 @@ class DashboardStore:
                 ).fetchall()
                 return [_json_row(row) for row in rows]
 
+    def search_repositories(self, *, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        if (not query.strip() or len(query) > 200 or "\x00" in query
+                or type(limit) is not int or not 1 <= limit <= 10):
+            raise ValueError("Invalid repository search")
+        pattern = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        with self._connection_factory() as connection, project_transaction(connection, self._scope):
+            with connection.cursor(row_factory=dict_row) as cursor:
+                return cursor.execute(
+                    "SELECT r.id::text AS id,r.full_name FROM github_intelligence.repositories r"
+                    " JOIN github_intelligence.projects p ON (p.client_id,p.id)=(r.client_id,r.project_id)"
+                    " JOIN github_intelligence.clients c ON c.id=r.client_id"
+                    " WHERE r.client_id=%s AND r.project_id=%s"
+                    " AND c.status='active' AND p.status='active'"
+                    " AND r.full_name ILIKE %s ESCAPE E'\\\\'"
+                    " AND (r.status<>'removed' OR EXISTS ("
+                    " SELECT 1 FROM github_intelligence.sync_runs s"
+                    " JOIN github_intelligence.report_sources source"
+                    " ON (source.client_id,source.project_id,source.sync_run_id)"
+                    " =(s.client_id,s.project_id,s.id)"
+                    " JOIN github_intelligence.reports report"
+                    " ON (report.client_id,report.project_id,report.id)"
+                    " =(source.client_id,source.project_id,source.report_id)"
+                    " WHERE (s.client_id,s.project_id,s.repository_id)=(r.client_id,r.project_id,r.id)))"
+                    " ORDER BY r.full_name,r.id LIMIT %s",
+                    (self._scope.client_id, self._scope.project_id, pattern, limit),
+                ).fetchall()
+
     def list_reports(
         self, *, repository_id: UUID | None = None, limit: int = 20, offset: int = 0,
+        include_options: bool = True,
     ) -> dict[str, Any]:
         if not 1 <= limit <= 100 or not 0 <= offset <= 1_000_000:
             raise ValueError("Invalid report pagination")
+        if type(include_options) is not bool:
+            raise ValueError("Invalid repository options flag")
+        options_select = """
+            COALESCE((SELECT jsonb_agg(to_jsonb(options) ORDER BY full_name,id)
+                      FROM (SELECT DISTINCT id,full_name FROM report_repositories) options),
+                      '[]'::jsonb) AS repository_options,
+        """ if include_options else ""
         with self._connection_factory() as connection, project_transaction(connection, self._scope):
             connection.execute("SET LOCAL TIME ZONE 'UTC'")
             with connection.cursor(row_factory=dict_row) as cursor:
                 row = cursor.execute(
                     _HISTORY_CTE + """, filtered AS (
-                        SELECT * FROM summaries summary
+                        SELECT summary.id,summary.complete,summary.generated_at,
+                               summary.window_start,summary.window_end
+                        FROM scoped_reports summary
                         WHERE %s::uuid IS NULL OR EXISTS (
                             SELECT 1 FROM report_repositories r
                             WHERE r.report_id=summary.id AND r.id=%s)
                     ), page AS (
                         SELECT * FROM filtered ORDER BY generated_at DESC,id DESC LIMIT %s OFFSET %s
-                    ), options AS (
-                        SELECT DISTINCT id,full_name FROM report_repositories
+                    ), page_summaries AS (
+                        SELECT page.*,COALESCE((
+                            SELECT jsonb_agg(jsonb_build_object('id',r.id,'full_name',r.full_name)
+                                             ORDER BY r.full_name,r.id)
+                            FROM report_repositories r WHERE r.report_id=page.id
+                        ),'[]'::jsonb) AS repositories FROM page
                     ) SELECT (SELECT count(*) FROM filtered) AS total,
-                        COALESCE((SELECT jsonb_agg(to_jsonb(options) ORDER BY full_name,id)
-                                  FROM options),'[]'::jsonb) AS repository_options,
-                        COALESCE((SELECT jsonb_agg(to_jsonb(page) ORDER BY generated_at DESC,id DESC)
-                                  FROM page),'[]'::jsonb) AS reports""",
+                    """ + options_select + """
+                        COALESCE((SELECT jsonb_agg(to_jsonb(page_summaries)
+                                                  ORDER BY generated_at DESC,id DESC)
+                                  FROM page_summaries),'[]'::jsonb) AS reports""",
                     (self._scope.client_id, self._scope.project_id,
                      repository_id, repository_id, limit, offset),
                 ).fetchone()
@@ -157,7 +200,8 @@ class DashboardStore:
                 row = cursor.execute(
                     _HISTORY_CTE + """
                         SELECT to_jsonb(summary) || jsonb_build_object('content',report.content)
-                        AS detail FROM summaries summary JOIN scoped_reports report ON report.id=summary.id
+                        AS detail FROM summaries summary
+                        JOIN github_intelligence.reports report ON report.id=summary.id
                         WHERE summary.id=%s""",
                     (self._scope.client_id, self._scope.project_id, report_id),
                 ).fetchone()

@@ -113,6 +113,14 @@ def test_http_read_only_history_survives_latest_failed_sync_and_removed_reposito
             )
             assert client.get("/api/repositories").json()["repositories"] == []
             assert client.get("/api/reports").json()["total"] == 7
+            assert client.get("/api/repositories/search?q=REPO-A").json() == {
+                "repositories": [{"id": str(ids["repo_a"]), "full_name": "owner/repo-a"}],
+            }
+            light = client.get(
+                f"/api/reports?repository_id={ids['repo_a']}&limit=2&offset=2&include_options=false",
+            )
+            assert light.status_code == 200
+            assert light.json() == {key: value for key, value in page.items() if key != "repository_options"}
             assert client.get(f"/api/reports/{UUID(int=10)}/details").json() == detail
             assert client.get("/api/dashboard").json()["connected_repositories"] == 0
             assert writes == []

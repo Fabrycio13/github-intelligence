@@ -11,17 +11,43 @@ let routeVersion = 0;
 // Page-lifetime reads only: no persistent storage or background polling.
 const readCache = new Map();
 const lastReads = new Map();
+const detailCacheLimit = 10;
+const readCacheLimit = 40;
+function cachedRead(path) {
+  const data = lastReads.get(path);
+  if (data) {
+    lastReads.delete(path);
+    lastReads.set(path, data);
+  }
+  return data;
+}
+function trimReads() {
+  const details = [...lastReads.keys()].filter(path => path.endsWith('/details'));
+  const evicted = details.slice(0, Math.max(0, details.length - detailCacheLimit));
+  for (const path of evicted) { lastReads.delete(path); readCache.delete(path); }
+  while (lastReads.size > readCacheLimit) {
+    const path = lastReads.keys().next().value;
+    lastReads.delete(path); readCache.delete(path);
+  }
+}
 function read(path) {
   if (!readCache.has(path)) {
     const pending = request(path).then(data => {
-      if (readCache.get(path) === pending) lastReads.set(path, data);
+      if (readCache.get(path) === pending) {
+        lastReads.set(path, data);
+        trimReads();
+      }
       return data;
     }, error => {
-      if (readCache.get(path) === pending && [401, 403, 404].includes(error.status)) lastReads.delete(path);
+      if (readCache.get(path) === pending) {
+        readCache.delete(path);
+        if ([401, 403, 404].includes(error.status)) lastReads.delete(path);
+      }
       throw error;
     });
     readCache.set(path, pending);
   }
+  cachedRead(path);
   return readCache.get(path);
 }
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36,6 +62,7 @@ function currentRoute() {
   return {page: parts[0], id: parts[1] || '', filter, offset: Number(offset), params};
 }
 async function navigate() {
+  closeDrawerReport();
   let route = currentRoute();
   if (!route) {
     history.replaceState(null, '', '#/dashboard');
@@ -52,8 +79,18 @@ async function navigate() {
   document.querySelector('#page-title').textContent = titles[page][0];
   document.querySelector('#page-description').textContent = titles[page][1];
   document.title = titles[page][0] + ' · GitHub Intelligence';
-  if (page === 'repositorios') renderRepositories(route.id);
-  if (page === 'dashboard') await loadDashboard(version);
+  if (page === 'repositorios' || page === 'dashboard') {
+    if (!repositoryData) {
+      try {
+        const data = await read('/api/repositories');
+        repositoryData = data.repositories; serverBusy = data.updating;
+      } catch (error) { notify(error.message, true); }
+      loadingRepositories = false;
+      if (version !== routeVersion) return;
+    }
+    if (page === 'repositorios') renderRepositories(route.id);
+    else await loadDashboard(version);
+  }
   if (page === 'analises') await loadAnalyses(route, version);
   if (page === 'relatorio') await loadReport(route.id, version);
 }
@@ -128,7 +165,7 @@ function reportRow(report) {
   info.append(el('h3', reportNames(report)), el('p', 'Gerado em ' + time(report.generated_at), 'muted'), el('p', 'Intervalo UTC: ' + report.window_start + ' → ' + report.window_end, 'report-period'));
   const actions = el('div', undefined, 'analysis-actions');
   const open = el('button', 'Abrir análise →', 'btn-secondary'); open.type = 'button';
-  open.addEventListener('click', () => openReport(report.id));
+  open.addEventListener('click', () => openDrawerReport(report.id));
   actions.append(el('span', completeness(report), 'badge ' + (report.complete ? 'badge-success' : 'badge-warning')), open);
   card.append(info, actions);
   return card;
@@ -139,113 +176,346 @@ function historyHash(filter, offset = 0) {
   if (offset) params.set('offset', String(offset));
   return '#/analises' + (params.size ? '?' + params : '');
 }
-function renderAnalyses(data, route) {
-  const target = document.querySelector('#analyses');
-  const filters = document.querySelector('#analysis-filters');
-  const count = document.querySelector('#analysis-count');
-  const pagination = document.querySelector('#analysis-pagination');
-  count.textContent = ''; pagination.replaceChildren(); filters.replaceChildren();
-  const options = new Map((repositoryData || []).map(repo => [repo.id, repo.full_name]));
-  for (const repo of data.repository_options) options.set(repo.id, repo.full_name);
-  if (route.filter && !options.has(route.filter)) options.set(route.filter, 'Repositório selecionado');
-  const all = link('Todos os repositórios', '#/analises', 'filter-chip');
-  if (!route.filter) all.setAttribute('aria-current', 'true');
-  filters.append(all);
-  for (const [id, name] of options) {
-    const option = link(name, historyHash(id), 'filter-chip');
-    if (id === route.filter) option.setAttribute('aria-current', 'true');
-    filters.append(option);
-  }
-  count.textContent = data.total + (data.total === 1 ? ' análise salva' : ' análises salvas') + (data.reports.length ? ' · Exibindo ' + (route.offset + 1) + '–' + (route.offset + data.reports.length) : '');
-  target.replaceChildren(...data.reports.map(reportRow));
-  if (!data.reports.length) target.append(emptyState('Nenhuma análise nesta seleção', route.offset ? 'Volte à primeira página para consultar o histórico.' : 'As análises aparecerão aqui após uma coleta confirmada.', route.offset ? 'Primeira página' : 'Ver repositórios', route.offset ? historyHash(route.filter) : '#/repositorios'));
-  if (route.offset > 0) pagination.append(link('← Anteriores', historyHash(route.filter, Math.max(0, route.offset - 20))));
-  if (route.offset + data.reports.length < data.total) pagination.append(link('Próximas →', historyHash(route.filter, route.offset + 20)));
+// Keep one mounted history, independent of the report drawer and search controls.
+const analysisState = {key: null, filter: '', offset: 0, next: 0, total: 0, ids: new Set(), loading: false, request: 0, ready: false};
+const analysisNames = new Map();
+let analysisFailure = null;
+function reportsPath(filter, offset = 0) {
+  const params = new URLSearchParams({limit: '10', offset: String(offset), include_options: 'false'});
+  if (filter) params.set('repository_id', filter);
+  return '/api/reports?' + params;
 }
-async function loadAnalyses(route, version) {
+function analysisSelection(filter) {
+  return filter ? analysisNames.get(filter) || (repositoryData || []).find(repo => repo.id === filter)?.full_name || 'Repositório selecionado' : 'Todos os repositórios';
+}
+function analysisControls() {
+  document.querySelector('#analysis-selection').textContent = analysisSelection(analysisState.filter);
+  document.querySelector('#analysis-count').textContent = analysisState.total + (analysisState.total === 1 ? ' análise salva' : ' análises salvas') + ' · Exibindo ' + analysisState.ids.size;
+  const more = document.querySelector('#analysis-more');
+  more.disabled = analysisState.loading;
+  more.hidden = !analysisFailure && (!analysisState.ready || analysisState.next >= analysisState.total);
+  more.textContent = analysisState.loading ? 'Carregando…' : analysisFailure ? 'Tentar novamente' : 'Carregar mais';
+}
+async function loadAnalyses(route, _version, {append = false, force = false} = {}) {
+  const key = route.filter + ':' + route.offset;
+  if (!append && !force && !analysisFailure && analysisState.key === key && (analysisState.ready || analysisState.loading)) return;
+  if (append && analysisState.loading) return;
   const target = document.querySelector('#analyses');
-  const params = new URLSearchParams({limit: '20', offset: String(route.offset)});
-  if (route.filter) params.set('repository_id', route.filter);
-  const path = '/api/reports?' + params;
-  const previous = lastReads.get(path);
-  if (previous) renderAnalyses(previous, route);
-  else {
-    target.replaceChildren(el('p', 'Carregando histórico…', 'muted'));
-    for (const selector of ['#analysis-filters', '#analysis-count', '#analysis-pagination']) document.querySelector(selector).replaceChildren();
-  }
+  const feedback = document.querySelector('#analysis-feedback');
+  const token = ++analysisState.request;
+  const offset = append ? analysisState.next : route.offset;
+  analysisState.loading = true;
+  analysisFailure = null;
+  analysisState.key = key;
+  feedback.textContent = 'Buscando análises de ' + analysisSelection(route.filter) + '…';
+  target.setAttribute('aria-busy', 'true');
+  analysisControls();
   try {
-    const data = await read(path);
-    if (version !== routeVersion) return;
-    renderAnalyses(data, route);
-  } catch (error) {
-    if (version !== routeVersion) return;
-    if (!lastReads.has(path)) {
-      target.replaceChildren(emptyState('Histórico indisponível', error.message));
-      for (const selector of ['#analysis-filters', '#analysis-count', '#analysis-pagination']) document.querySelector(selector).replaceChildren();
+    const data = await read(reportsPath(route.filter, offset));
+    if (token !== analysisState.request) return;
+    if (!append) {
+      analysisState.ids.clear();
+      target.replaceChildren();
+      analysisState.filter = route.filter;
+      analysisState.offset = route.offset;
     }
-    notify(error.message, true);
+    for (const report of data.reports) {
+      for (const repo of report.repositories) analysisNames.set(repo.id, repo.full_name);
+      if (analysisState.ids.has(report.id)) continue;
+      analysisState.ids.add(report.id);
+      target.append(reportRow(report));
+    }
+    if (!analysisState.ids.size) target.append(emptyState(route.filter ? 'Este repositório ainda não tem análises' : 'Ainda não há análises salvas', 'As análises aparecerão aqui após uma coleta confirmada.'));
+    analysisState.next = offset + data.reports.length;
+    analysisState.total = data.total;
+    analysisState.ready = true;
+    feedback.textContent = '';
+  } catch (error) {
+    if (token !== analysisState.request) return;
+    analysisFailure = {route, append, force};
+    feedback.textContent = 'Não foi possível carregar esta seleção. Tente novamente. ' + error.message;
+  } finally {
+    if (token === analysisState.request) {
+      analysisState.loading = false;
+      target.setAttribute('aria-busy', 'false');
+      analysisControls();
+    }
   }
 }
+document.querySelector('#analysis-more').addEventListener('click', () => {
+  if (analysisFailure) {
+    const failed = analysisFailure;
+    return loadAnalyses(failed.route, routeVersion, {append: failed.append, force: true});
+  }
+  return loadAnalyses({filter: analysisState.filter, offset: analysisState.offset}, routeVersion, {append: true});
+});
+document.querySelector('#analysis-all').addEventListener('click', () => { location.hash = historyHash(''); });
+document.querySelector('#analysis-new').addEventListener('click', async () => {
+  const button = document.querySelector('#analysis-new');
+  if (analysisState.loading) return;
+  for (const path of readCache.keys()) {
+    if (path.startsWith('/api/reports?')) { readCache.delete(path); lastReads.delete(path); }
+  }
+  button.hidden = true;
+  await loadAnalyses({filter: analysisState.filter, offset: 0}, routeVersion, {force: true});
+  if (analysisFailure) button.hidden = false;
+});
+let searchTimer;
+let searchRequest = 0;
+let searchController;
+const analysisSearch = document.querySelector('#analysis-search');
+const analysisResults = document.querySelector('#analysis-search-results');
+analysisSearch.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchController?.abort();
+  const token = ++searchRequest;
+  const query = analysisSearch.value.trim();
+  analysisResults.replaceChildren();
+  analysisResults.hidden = !query;
+  if (!query) return;
+  analysisResults.append(el('p', 'Buscando repositórios…', 'muted'));
+  searchTimer = setTimeout(async () => {
+    searchController = new AbortController();
+    try {
+      const params = new URLSearchParams({q: query, limit: '10'});
+      const data = await request('/api/repositories/search?' + params, {signal: searchController.signal});
+      if (token !== searchRequest) return;
+      analysisResults.replaceChildren();
+      for (const repo of data.repositories) {
+        analysisNames.set(repo.id, repo.full_name);
+        const button = el('button', repo.full_name, 'analysis-search-option'); button.type = 'button';
+        button.addEventListener('click', () => {
+          analysisResults.hidden = true;
+          location.hash = historyHash(repo.id);
+        });
+        analysisResults.append(button);
+      }
+      if (!data.repositories.length) analysisResults.append(el('p', 'Nenhum repositório encontrado.', 'muted'));
+    } catch (error) {
+      if (token !== searchRequest || error.name === 'AbortError') return;
+      analysisResults.replaceChildren(el('p', 'Não foi possível buscar. Digite novamente para tentar.', 'muted'));
+    }
+  }, 250);
+});
 function svgNode(tag, attrs) {
   const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
   for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
   return node;
 }
-function dailyChart(data) {
-  const chart = el('article', undefined, 'chart-card');
-  chart.append(el('h3', 'Análises ao longo do tempo'), el('p', 'Geração de relatórios · Últimos 30 dias · UTC', 'muted'));
-  const svg = svgNode('svg', {viewBox: '0 0 640 180', role: 'img', 'aria-label': 'Análises geradas por dia. Valores disponíveis na tabela abaixo.', class: 'daily-chart'});
-  const max = Math.max(1, ...data.daily_reports.map(day => day.count));
-  for (const y of [20, 85, 150]) svg.append(svgNode('line', {x1: 20, x2: 620, y1: y, y2: y, class: 'chart-grid'}));
-  const points = data.daily_reports.map((day, index) => [20 + index * 600 / Math.max(1, data.daily_reports.length - 1), 150 - day.count * 130 / max]);
-  if (points.length) {
-    const coords = points.map(point => point.join(',')).join(' ');
-    svg.append(svgNode('polygon', {points: '20,150 ' + coords + ' 620,150', class: 'chart-area'}));
-    svg.append(svgNode('polyline', {points: coords, class: 'chart-line'}));
-    data.daily_reports.forEach((day, index) => {
-      if (!day.count) return;
-      const point = svgNode('circle', {cx: points[index][0], cy: points[index][1], r: 4, class: 'chart-point'});
-      const title = svgNode('title', {}); title.textContent = day.date + ': ' + day.count;
-      point.append(title); svg.append(point);
-    });
-  }
-  const actualMax = Math.max(0, ...data.daily_reports.map(day => day.count));
-  chart.append(svg, el('p', data.period_start + ' → ' + data.period_end + ' · Máximo diário: ' + actualMax, 'chart-caption'));
-  const details = el('details'); details.append(el('summary', 'Ver valores por dia'));
-  const table = el('table', undefined, 'chart-table');
-  const header = el('tr'); header.append(el('th', 'Dia (UTC)'), el('th', 'Análises'));
-  const head = el('thead'); head.append(header); table.append(head);
-  const body = el('tbody');
-  for (const day of data.daily_reports) { const row = el('tr'); row.append(el('td', day.date), el('td', String(day.count))); body.append(row); }
-  table.append(body); details.append(table); chart.append(details);
-  return chart;
+function repoIcon() {
+  const icon = svgNode('svg', {viewBox: '0 0 24 24', width: '15', height: '15', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', class: 'icon-repo'});
+  icon.append(
+    svgNode('path', {d: 'M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z'}),
+    svgNode('path', {d: 'M6 6h10M6 10h10'})
+  );
+  return icon;
 }
 function renderDashboard(data) {
   const target = document.querySelector('#dashboard-content');
-  const metrics = el('div', undefined, 'metrics');
-  for (const [label, value, hint] of [['Repositórios conectados', data.connected_repositories, 'Vínculos e instalações ativos'], ['Análises salvas', data.total_reports, 'Todo o histórico deste projeto'], ['Análises parciais', data.partial_reports, 'Relatórios com limitações de cobertura']]) {
-    const card = el('article', undefined, 'metric-card'); card.append(el('p', label), el('strong', String(value)), el('small', hint)); metrics.append(card);
+  target.replaceChildren();
+
+  // 1. Context Ribbon (Alta densidade, substitui os cards clichês de IA)
+  const ribbon = el('div', undefined, 'dashboard-ribbon');
+  const ribbonItems = el('div', undefined, 'ribbon-items');
+
+  const repoPill = el('a', undefined, 'ribbon-pill');
+  repoPill.href = '#/repositorios';
+  const dot = el('span', undefined, 'badge-dot');
+  const repoLabel = el('span', data.connected_repositories + (data.connected_repositories === 1 ? ' repositório ativo' : ' repositórios ativos'));
+  repoPill.append(dot, repoLabel);
+
+  const reportPill = el('a', undefined, 'ribbon-pill');
+  reportPill.href = '#/analises';
+  reportPill.append(el('span', data.total_reports + (data.total_reports === 1 ? ' análise salva' : ' análises salvas')));
+
+  const auditPill = el('div', undefined, 'ribbon-pill ribbon-pill-muted');
+  if (data.partial_reports > 0) {
+    auditPill.textContent = '▲ ' + data.partial_reports + ' com cobertura parcial';
+    auditPill.classList.add('ribbon-pill-warning');
+  } else {
+    auditPill.textContent = '✓ 100% Determinístico · Sem IA';
   }
-  const charts = el('div', undefined, 'chart-grid-layout');
-  charts.append(dailyChart(data));
-  const distribution = el('article', undefined, 'chart-card');
-  distribution.append(el('h3', 'Análises por repositório'), el('p', 'Histórico completo · Relatórios distintos por repositório', 'muted'));
-  const max = Math.max(1, ...data.repository_reports.map(repo => repo.count));
-  for (const repo of data.repository_reports) {
-    const row = el('div', undefined, 'distribution-row');
-    row.append(link(repo.full_name, historyHash(repo.id)), el('strong', String(repo.count)));
-    const bar = svgNode('svg', {viewBox: '0 0 200 5', 'aria-hidden': 'true', class: 'distribution-bar', preserveAspectRatio: 'none'});
-    bar.append(svgNode('rect', {width: 200, height: 5, rx: 2.5, class: 'bar-track'}), svgNode('rect', {width: repo.count * 200 / max, height: 5, rx: 2.5, class: 'bar-fill'}));
-    row.append(bar); distribution.append(row);
+
+  ribbonItems.append(repoPill, reportPill, auditPill);
+
+  const ribbonMeta = el('div', undefined, 'ribbon-meta');
+  if (data.period_start && data.period_end) {
+    ribbonMeta.append(el('span', 'Janela: ' + data.period_start + ' → ' + data.period_end + ' UTC', 'muted'));
   }
-  if (!data.repository_reports.length) distribution.append(el('p', 'Sem análises associadas a repositórios.', 'muted'));
-  distribution.append(el('p', 'Um relatório pode incluir mais de um repositório.', 'chart-caption'));
-  charts.append(distribution);
-  const recent = el('div', undefined, 'recent-reports');
-  const heading = el('div', undefined, 'toolbar'); heading.append(el('h2', 'Últimas análises'), link('Ver histórico completo →', '#/analises'));
-  recent.append(heading, ...data.recent_reports.map(reportRow));
-  if (!data.recent_reports.length) recent.append(emptyState('Ainda não há análises salvas', data.connected_repositories ? 'Abra um repositório e confirme a primeira coleta.' : 'Confira seus repositórios ou adicione o primeiro para começar.', 'Ver repositórios', '#/repositorios'));
-  target.replaceChildren(metrics, charts, recent);
+  ribbon.append(ribbonItems, ribbonMeta);
+
+  // 2. High-Density Workstation Grid (Linear Style: Feed Principal + Atalhos Operacionais)
+  const grid = el('div', undefined, 'dashboard-grid');
+
+  // Coluna Principal: Feed de Evidências Recentes
+  const feedCol = el('section', undefined, 'dashboard-feed-area');
+  const feedHeader = el('div', undefined, 'section-heading');
+  const feedTitle = el('div', undefined, 'heading-title-group');
+  feedTitle.append(
+    el('h2', 'Feed de Evidências Recentes'),
+    el('p', 'Relatórios determinísticos e evidências coletadas do GitHub.', 'muted')
+  );
+
+  const feedControls = el('div', undefined, 'heading-controls-group');
+  const searchWrap = el('div', undefined, 'feed-search-wrap');
+  const searchIcon = svgNode('svg', {viewBox: '0 0 24 24', width: '13', height: '13', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'aria-hidden': 'true', class: 'search-icon'});
+  searchIcon.append(
+    svgNode('circle', {cx: '11', cy: '11', r: '8'}),
+    svgNode('path', {d: 'm21 21-4.3-4.3'})
+  );
+  const searchInput = el('input', undefined, 'feed-search-input');
+  searchInput.type = 'text';
+  searchInput.placeholder = 'Filtrar evidências (repo, data)…';
+  searchInput.setAttribute('aria-label', 'Filtrar evidências recentes');
+  searchInput.autocomplete = 'off';
+  searchInput.spellcheck = false;
+
+  const searchClear = el('button', '✕', 'search-clear-btn');
+  searchClear.type = 'button';
+  searchClear.title = 'Limpar filtro';
+  searchClear.hidden = true;
+
+  searchWrap.append(searchIcon, searchInput, searchClear);
+  feedControls.append(searchWrap, link('Ver histórico completo (' + data.total_reports + ') →', '#/analises', 'text-link'));
+  feedHeader.append(feedTitle, feedControls);
+  feedCol.append(feedHeader);
+
+  if (data.recent_reports && data.recent_reports.length) {
+    const tableWrap = el('div', undefined, 'table-responsive');
+    const table = el('table', undefined, 'evidence-table');
+
+    const thead = el('thead');
+    const trHead = el('tr');
+    trHead.append(
+      el('th', 'Repositório'),
+      el('th', 'Janela UTC'),
+      el('th', 'Cobertura'),
+      el('th', 'Gerado em'),
+      el('th', 'Ação')
+    );
+    thead.append(trHead);
+    table.append(thead);
+
+    const tbody = el('tbody');
+    for (const report of data.recent_reports) {
+      const tr = el('tr', undefined, 'evidence-row');
+
+      // Repositório
+      const tdRepo = el('td', undefined, 'td-repo');
+      const repoBox = el('div', undefined, 'repo-cell');
+      repoBox.append(repoIcon());
+      const rLink = link(reportNames(report), report.repositories[0]?.id ? historyHash(report.repositories[0].id) : '#/analises');
+      rLink.className = 'repo-link-strong';
+      repoBox.append(rLink);
+      tdRepo.append(repoBox);
+
+      // Janela UTC
+      const tdWindow = el('td', undefined, 'td-window');
+      const wStart = report.window_start ? report.window_start.slice(0, 10) : '—';
+      const wEnd = report.window_end ? report.window_end.slice(0, 10) : '—';
+      tdWindow.append(el('span', wStart + ' → ' + wEnd, 'code-pill'));
+
+      // Cobertura
+      const tdStatus = el('td', undefined, 'td-status');
+      const badge = el('span', completeness(report), 'badge ' + (report.complete ? 'badge-success' : 'badge-warning'));
+      tdStatus.append(badge);
+
+      // Data de Geração
+      const tdDate = el('td', time(report.generated_at), 'td-date muted');
+
+      // Ação: abre no drawer lateral sem sair do dashboard
+      const tdAction = el('td', undefined, 'td-action');
+      const btn = el('button', 'Abrir análise →', 'btn-secondary btn-sm');
+      btn.type = 'button';
+      btn.addEventListener('click', () => openDrawerReport(report.id));
+      tdAction.append(btn);
+
+      tr.append(tdRepo, tdWindow, tdStatus, tdDate, tdAction);
+      tbody.append(tr);
+    }
+    table.append(tbody);
+
+    const emptySearchNotice = el('p', 'Nenhuma evidência recente corresponde ao filtro informado.', 'filter-empty-state muted');
+    emptySearchNotice.hidden = true;
+
+    searchInput.addEventListener('input', () => {
+      const query = searchInput.value.trim().toLowerCase();
+      searchClear.hidden = !query;
+      let visible = 0;
+      const rows = tbody.querySelectorAll('.evidence-row');
+      rows.forEach(row => {
+        const match = !query || row.textContent.toLowerCase().includes(query);
+        row.hidden = !match;
+        if (match) visible++;
+      });
+      emptySearchNotice.hidden = visible > 0 || rows.length === 0;
+    });
+
+    searchClear.addEventListener('click', () => {
+      searchInput.value = '';
+      searchInput.dispatchEvent(new Event('input'));
+      searchInput.focus();
+    });
+
+    tableWrap.append(table, emptySearchNotice);
+    feedCol.append(tableWrap);
+  } else {
+    feedCol.append(emptyState(
+      'Ainda não há análises salvas',
+      data.connected_repositories ? 'Inicie a coleta de um dos repositórios monitorados ao lado.' : 'Adicione o primeiro repositório para começar a monitorar evidências.',
+      'Ver repositórios', '#/repositorios'
+    ));
+  }
+
+  // Coluna Lateral: Repositórios Monitorados & Sincronização
+  const sideCol = el('aside', undefined, 'dashboard-side-area');
+  const sideHeader = el('div', undefined, 'section-heading');
+  const sideTitle = el('div');
+  sideTitle.append(
+    el('h2', 'Repositórios'),
+    el('p', 'Vínculos ativos monitorados', 'muted')
+  );
+  sideHeader.append(sideTitle, link('Gerenciar →', '#/repositorios', 'text-link'));
+  sideCol.append(sideHeader);
+
+  const reposContainer = el('div', undefined, 'quick-repos-list');
+  if (repositoryData && repositoryData.length) {
+    for (const repo of repositoryData) {
+      const card = el('article', undefined, 'quick-repo-card');
+
+      const head = el('div', undefined, 'quick-repo-head');
+      const titleWrap = el('div', undefined, 'quick-repo-title-wrap');
+      titleWrap.append(repoIcon(), link(repo.full_name, '#/repositorios/' + repo.id, 'quick-repo-name'));
+      const isOnline = repo.status === 'active' && repo.installation_status === 'active';
+      const statusBadge = el('span', isOnline ? 'Ativo' : 'Inativo', 'badge ' + (isOnline ? 'badge-success' : 'badge-danger'));
+      head.append(titleWrap, statusBadge);
+
+      const meta = el('div', undefined, 'quick-repo-meta');
+      const lastStatus = statuses[repo.last_status] || 'Ainda não realizada';
+      const statusLine = el('p', undefined, 'quick-repo-line');
+      statusLine.append(el('span', 'Status do sync: ', 'muted'), el('span', lastStatus, repo.last_status === 'succeeded' ? 'text-success' : (repo.last_status === 'failed' ? 'text-danger' : '')));
+      meta.append(statusLine);
+
+      if (repo.last_finished_at) {
+        meta.append(el('p', 'Última coleta: ' + time(repo.last_finished_at), 'muted quick-repo-time'));
+      }
+
+      const actions = el('div', undefined, 'quick-repo-actions');
+      actions.append(
+        link('Ver análises', historyHash(repo.id), 'btn-secondary btn-sm'),
+        link('Coletar / Abrir →', '#/repositorios/' + repo.id, 'btn-primary btn-sm')
+      );
+
+      card.append(head, meta, actions);
+      reposContainer.append(card);
+    }
+  } else {
+    reposContainer.append(emptyState('Nenhum repositório vinculado', 'Conecte um repositório para iniciar a coleta determinística.', 'Adicionar repositório', '#/repositorios'));
+  }
+  sideCol.append(reposContainer);
+
+  grid.append(feedCol, sideCol);
+  target.append(ribbon, grid);
 }
 async function loadDashboard(version) {
   const target = document.querySelector('#dashboard-content');
@@ -262,6 +532,89 @@ async function loadDashboard(version) {
     notify(error.message, true);
   }
 }
+let activeDrawerReportId = null;
+let drawerCloseTimer;
+let drawerTrigger;
+let drawerVersion = 0;
+
+function closeDrawerReport() {
+  const drawer = document.querySelector('#report-drawer');
+  const backdrop = document.querySelector('#drawer-backdrop');
+  if (!drawer || !backdrop || drawer.hidden) return;
+  activeDrawerReportId = null;
+  ++drawerVersion;
+  drawer.dataset.open = 'false';
+  backdrop.dataset.open = 'false';
+  document.querySelector('#main-content').inert = false;
+  document.querySelector('.sidebar').inert = false;
+  drawerTrigger?.focus({preventScroll: true});
+  clearTimeout(drawerCloseTimer);
+  drawerCloseTimer = setTimeout(() => {
+    drawer.hidden = true;
+    backdrop.hidden = true;
+  }, 280);
+}
+
+async function openDrawerReport(id) {
+  const drawer = document.querySelector('#report-drawer');
+  const backdrop = document.querySelector('#drawer-backdrop');
+  if (!drawer || !backdrop) return;
+  clearTimeout(drawerCloseTimer);
+  const version = ++drawerVersion;
+  if (drawer.hidden || drawer.dataset.open !== 'true') drawerTrigger = document.activeElement;
+  activeDrawerReportId = id;
+  const title = document.querySelector('#drawer-title');
+  const meta = document.querySelector('#drawer-meta');
+  const banner = document.querySelector('#drawer-status-banner');
+  const content = document.querySelector('#drawer-content');
+  const fullscreenBtn = document.querySelector('#drawer-fullscreen-btn');
+
+  drawer.hidden = false;
+  backdrop.hidden = false;
+  document.querySelector('#main-content').inert = true;
+  document.querySelector('.sidebar').inert = true;
+  document.querySelector('#drawer-close-btn').focus({preventScroll: true});
+  requestAnimationFrame(() => {
+    if (version !== drawerVersion) return;
+    drawer.dataset.open = 'true';
+    backdrop.dataset.open = 'true';
+  });
+
+  fullscreenBtn.onclick = () => {
+    closeDrawerReport();
+    openReport(id);
+  };
+
+  const path = '/api/reports/' + encodeURIComponent(id) + '/details';
+  function display(report) {
+    title.textContent = reportNames(report);
+    meta.textContent = 'Gerado em ' + time(report.generated_at);
+    banner.replaceChildren();
+    banner.append(el('span', completeness(report), 'badge ' + (report.complete ? 'badge-success' : 'badge-warning')), el('span', 'Janela UTC: ' + (report.window_start || '—') + ' → ' + (report.window_end || '—'), 'code-pill'));
+    content.textContent = report.content;
+    document.querySelector('#drawer-copy-btn').disabled = false;
+  }
+  const previous = cachedRead(path);
+  document.querySelector('#drawer-copy-btn').disabled = !previous;
+  if (previous) { display(previous); return; }
+  title.textContent = 'Carregando análise…';
+  meta.textContent = '';
+  banner.replaceChildren();
+  content.textContent = 'Consultando a análise selecionada…';
+  try {
+    const report = await read(path);
+    if (activeDrawerReportId !== id || version !== drawerVersion) return;
+    display(report);
+  } catch (err) {
+    if (activeDrawerReportId !== id || version !== drawerVersion) return;
+    title.textContent = 'Análise indisponível';
+    content.textContent = err.message;
+    const retry = el('button', 'Tentar novamente', 'btn-secondary'); retry.type = 'button';
+    retry.addEventListener('click', () => openDrawerReport(id));
+    banner.replaceChildren(retry);
+  }
+}
+
 function openReport(id) {
   const params = new URLSearchParams({return_to: location.hash.slice(1) || '/dashboard'});
   location.hash = '/analises/' + encodeURIComponent(id) + '?' + params;
@@ -357,20 +710,22 @@ async function load({initial = false, changed = false} = {}) {
   refreshing = true;
   if (!initial) {
     if (changed) {
-      for (const path of readCache.keys()) if (!path.endsWith('/details')) readCache.delete(path);
-    } else readCache.clear();
+      for (const path of readCache.keys()) {
+        if (!path.endsWith('/details') && !path.startsWith('/api/reports?')) { readCache.delete(path); lastReads.delete(path); }
+      }
+      if (analysisState.ready) document.querySelector('#analysis-new').hidden = false;
+      else for (const path of readCache.keys()) if (path.startsWith('/api/reports?')) { readCache.delete(path); lastReads.delete(path); }
+    } else { readCache.clear(); lastReads.clear(); }
   }
   loadingRepositories = true;
   const reload = document.querySelector('#reload'); reload.disabled = true;
-  const paths = new Set(['/api/repositories', '/api/dashboard', '/api/reports?limit=20&offset=0']);
   const route = currentRoute();
+  const paths = new Set();
+  if (route?.page === 'dashboard') { paths.add('/api/repositories'); paths.add('/api/dashboard'); }
+  if (route?.page === 'repositorios' || changed) paths.add('/api/repositories');
   if (route?.page === 'analises') {
     if (route.id) paths.add('/api/reports/' + route.id + '/details');
-    else {
-      const params = new URLSearchParams({limit: '20', offset: String(route.offset)});
-      if (route.filter) params.set('repository_id', route.filter);
-      paths.add('/api/reports?' + params);
-    }
+    else if (!changed || !analysisState.ready) paths.add(reportsPath(route.filter, route.offset));
   }
     let loader = null;
   if (initial) {
@@ -382,17 +737,22 @@ async function load({initial = false, changed = false} = {}) {
     if (loader) loader.advance(completed, paths.size);
     return data;
   }));
-  const navigation = initial ? null : navigate();
+  const navigation = initial || route?.page === 'analises' ? null : navigate();
   const results = await Promise.allSettled(reads);
   if (navigation) await navigation;
   const data = lastReads.get('/api/repositories');
   const failed = results.some(result => result.status === 'rejected');
   if (data) {
     repositoryData = data.repositories; serverBusy = data.updating;
-  } else repositoryData = null;
+  } else if (paths.has('/api/repositories')) repositoryData = null;
   notify(failed ? 'Não foi possível atualizar todos os dados. Os últimos dados disponíveis foram mantidos; tente Recarregar dados.' : '', failed);
   loadingRepositories = false;
+  if (!initial && route?.page === 'analises' && !route.id && !changed) await loadAnalyses(route, routeVersion, {force: true});
   if (currentRoute()?.page === 'repositorios') renderRepositories(currentRoute().id);
+  if (currentRoute()?.page === 'dashboard') {
+    const dashData = lastReads.get('/api/dashboard');
+    if (dashData) renderDashboard(dashData);
+  }
   reload.disabled = false;
   refreshing = false;
   if (initial) {
@@ -478,6 +838,58 @@ document.querySelector('.skip-link').addEventListener('click', event => {
   const main = document.querySelector('#main-content');
   main.focus(); main.scrollIntoView();
 });
+const copyReportBtn = document.querySelector('#copy-report');
+if (copyReportBtn) {
+  copyReportBtn.addEventListener('click', async () => {
+    const text = document.querySelector('#report-content').textContent;
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      const originalText = copyReportBtn.textContent;
+      copyReportBtn.textContent = 'Copiado!';
+      copyReportBtn.disabled = true;
+      setTimeout(() => {
+        copyReportBtn.textContent = originalText;
+        copyReportBtn.disabled = false;
+      }, 2000);
+    } catch {
+      notify('Não foi possível copiar o relatório para a área de transferência.', true);
+    }
+  });
+}
+document.querySelector('#drawer-close-btn')?.addEventListener('click', closeDrawerReport);
+document.querySelector('#drawer-backdrop')?.addEventListener('click', closeDrawerReport);
+document.querySelector('#drawer-copy-btn')?.addEventListener('click', async () => {
+  const text = document.querySelector('#drawer-content').textContent;
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    const btnText = document.querySelector('#drawer-copy-btn .btn-text');
+    if (btnText) {
+      const orig = btnText.textContent;
+      btnText.textContent = 'Copiado!';
+      setTimeout(() => { btnText.textContent = orig; }, 2000);
+    }
+  } catch {
+    notify('Não foi possível copiar o relatório para a área de transferência.', true);
+  }
+});
+window.addEventListener('keydown', event => {
+  const panel = document.querySelector('#report-drawer');
+  if (event.key === 'Tab' && panel && !panel.hidden && panel.dataset.open === 'true') {
+    const controls = [...panel.querySelectorAll('button:not(:disabled)')];
+    const first = controls[0]; const last = controls[controls.length - 1];
+    if (first && event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (last && !event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+  if (event.key === 'Escape') {
+    const drawer = document.querySelector('#report-drawer');
+    if (drawer && !drawer.hidden && drawer.dataset.open === 'true') {
+      closeDrawerReport();
+    }
+  }
+});
+
 document.querySelector('#close-report').addEventListener('click', () => {
   const target = currentRoute()?.params.get('return_to') || '/analises';
   location.hash = /^\/(dashboard|repositorios|analises)(\/|\?|$)/.test(target) && !target.includes('return_to') ? target : '/analises';

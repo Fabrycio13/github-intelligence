@@ -19,6 +19,7 @@ function page() {
     // Keep the pre-existing loader out of this sidebar-only test seam.
     if (['#initial-loading', '#retry-loading', '#continue-loading'].includes(selector)) return null;
     if (!nodes.has(selector)) nodes.set(selector, node());
+    if (selector === '#report-drawer') nodes.get(selector).hidden = true;
     return nodes.get(selector);
   }
   const requests = [];
@@ -59,5 +60,7 @@ test('changing the route preserves the collapsed menu and cached reads', () => {
   app.location.hash = '#/analises';
   app.window.listeners.hashchange();
   assert.equal(app.get('#app-shell').dataset.sidebarCollapsed, 'true');
-  assert.equal(app.requests.length, before);
+  assert.equal(app.requests.length, before + 1);
+  app.window.listeners.hashchange();
+  assert.equal(app.requests.length, before + 1);
 });

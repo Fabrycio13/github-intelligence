@@ -329,6 +329,92 @@ def test_dashboard_connected_count_requires_every_active_link(prepared_db, targe
     assert _store(db, ids, "a2").get_dashboard()["total_reports"] == 0
 
 
+def test_repository_search_is_literal_bounded_and_includes_history_without_active_link(prepared_db):
+    db, ids = prepared_db
+    store = _store(db, ids)
+    assert store.search_repositories(query="REPO-A") == [
+        {"id": str(ids["repo_a"]), "full_name": "owner/repo-a"},
+    ]
+    assert store.search_repositories(query="repo-b") == []
+    assert store.search_repositories(query="repo-a2") == []
+    _run(db, ids, UUID(int=1), "2026-10-19Z")
+    _report(db, ids, UUID(int=2), "2026-10-20Z", UUID(int=1))
+    db.execute("UPDATE github_intelligence.repositories SET status='removed' WHERE id=%s", (ids["repo_a"],))
+    assert store.search_repositories(query="REPO-A")[0]["id"] == str(ids["repo_a"])
+    for n, name, status in (
+        (100, "owner/literal_name", "inactive"),
+        (101, "owner/literalXname", "active"),
+        (102, "owner/removed-empty", "removed"),
+    ):
+        db.execute(
+            "INSERT INTO github_intelligence.repositories"
+            "(id,client_id,project_id,installation_id,github_repository_id,full_name,status)"
+            " VALUES(%s,%s,%s,%s,%s,%s,%s)",
+            (UUID(int=n), ids["client_a"], ids["project_a"], ids["install_a"], n, name, status),
+        )
+    assert store.search_repositories(query="literal_") == [
+        {"id": str(UUID(int=100)), "full_name": "owner/literal_name"},
+    ]
+    assert store.search_repositories(query="%") == []
+    assert store.search_repositories(query="back\\slash") == []
+    assert store.search_repositories(query="removed-empty") == []
+    assert store.search_repositories(query="' OR true --") == []
+    db.execute(
+        "INSERT INTO github_intelligence.repositories"
+        "(client_id,project_id,installation_id,github_repository_id,full_name)"
+        " SELECT %s,%s,%s,10000+n,'owner/bulk-' || lpad(n::text,3,'0')"
+        " FROM generate_series(1,500) n",
+        (ids["client_a"], ids["project_a"], ids["install_a"]),
+    )
+    result = store.search_repositories(query="BULK-")
+    assert [row["full_name"] for row in result] == [f"owner/bulk-{n:03d}" for n in range(1, 11)]
+    assert store.search_repositories(query="bulk-", limit=1) == result[:1]
+    for query, limit in (("", 10), (" ", 10), ("x" * 201, 10), ("\x00", 10),
+                         ("bulk", 0), ("bulk", 11), ("bulk", True), ("bulk", 1.5)):
+        with pytest.raises(ValueError, match="Invalid repository search"):
+            store.search_repositories(query=query, limit=limit)
+    for target in ("projects", "clients"):
+        key = "project_a" if target == "projects" else "client_a"
+        db.execute(f"UPDATE github_intelligence.{target} SET status='inactive' WHERE id=%s", (ids[key],))
+        assert store.search_repositories(query="bulk-") == []
+        db.execute(f"UPDATE github_intelligence.{target} SET status='active' WHERE id=%s", (ids[key],))
+
+
+def test_light_history_pages_500_reports_without_content_options_or_duplicates(prepared_db):
+    db, ids = prepared_db
+    _run(db, ids, UUID(int=1), "2026-10-19Z")
+    db.execute(
+        "INSERT INTO github_intelligence.reports"
+        "(id,client_id,project_id,window_start,window_end,content,complete,generated_at)"
+        " SELECT lpad(to_hex(n),32,'0')::uuid,%s,%s,'2026-10-01Z','2026-10-19Z',"
+        " repeat('SYNTHETIC large content ',1000),true,'2026-10-20Z' FROM generate_series(1,500) n",
+        (ids["client_a"], ids["project_a"]),
+    )
+    db.execute(
+        "INSERT INTO github_intelligence.report_sources(client_id,project_id,report_id,sync_run_id)"
+        " SELECT client_id,project_id,id,%s FROM github_intelligence.reports",
+        (UUID(int=1),),
+    )
+    store = _store(db, ids)
+    collected = []
+    for offset in range(0, 500, 10):
+        page = store.list_reports(limit=10, offset=offset, include_options=False)
+        assert set(page) == {"reports", "total", "limit", "offset"}
+        assert (page["total"], page["limit"], page["offset"]) == (500, 10, offset)
+        assert len(page["reports"]) == 10
+        assert all("content" not in report for report in page["reports"])
+        assert len(json.dumps(page)) < 5000
+        collected.extend(report["id"] for report in page["reports"])
+    assert collected == [str(UUID(int=n)) for n in range(500, 0, -1)]
+    assert len(set(collected)) == 500
+    assert store.list_reports(limit=10, offset=500, include_options=False)["reports"] == []
+    assert store.list_reports(repository_id=ids["repo_b"], include_options=False)["total"] == 0
+    assert "repository_options" in store.list_reports()
+    with pytest.raises(ValueError, match="Invalid repository options flag"):
+        store.list_reports(include_options="false")
+    assert store.get_report_details(UUID(int=500))["content"].startswith("SYNTHETIC large content ")
+
+
 def test_history_repository_options_include_removed_repository_outside_filtered_page(prepared_db):
     db, ids = prepared_db
     other = UUID(int=90)

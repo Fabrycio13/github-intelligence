@@ -1,52 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80" fill="none">
-  <!-- Scaled Git Cat Icon on Left (48x48 placed at 12, 16) -->
-  <g transform="translate(4, 4) scale(0.56)">
-    <!-- Outer Head Contour / Ears -->
-    <path d="M64 36 L46 38 L26 22 L24 54 L18 72 L28 92 L44 104 L64 112 L84 104 L100 92 L110 72 L104 54 L102 22 L82 38 Z" 
-          stroke="#38bdf8" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
-
-    <!-- Inner Ear Facets -->
-    <path d="M32 36 L28 58 L44 48 Z" stroke="#94a3b8" stroke-width="2.2" stroke-linejoin="round"/>
-    <path d="M96 36 L100 58 L84 48 Z" stroke="#94a3b8" stroke-width="2.2" stroke-linejoin="round"/>
-
-    <!-- Feline Tech Eyes -->
-    <polygon points="36,64 50,62 44,70" fill="#38bdf8"/>
-    <polygon points="92,64 78,62 84,70" fill="#38bdf8"/>
-
-    <!-- Git Commit Topology Branches -->
-    <line x1="64" y1="36" x2="64" y2="52" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"/>
-    <line x1="64" y1="52" x2="46" y2="80" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"/>
-    <line x1="64" y1="52" x2="82" y2="80" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"/>
-    <line x1="46" y1="80" x2="64" y2="98" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"/>
-    <line x1="82" y1="80" x2="64" y2="98" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"/>
-    <line x1="64" y1="98" x2="64" y2="112" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round"/>
-
-    <!-- Whiskers -->
-    <line x1="32" y1="78" x2="10" y2="76" stroke="#38bdf8" stroke-width="2.4" stroke-linecap="round"/>
-    <line x1="34" y1="86" x2="14" y2="90" stroke="#38bdf8" stroke-width="2.4" stroke-linecap="round"/>
-    <line x1="96" y1="78" x2="118" y2="76" stroke="#38bdf8" stroke-width="2.4" stroke-linecap="round"/>
-    <line x1="94" y1="86" x2="114" y2="90" stroke="#38bdf8" stroke-width="2.4" stroke-linecap="round"/>
-
-    <!-- Muzzle -->
-    <polygon points="64,74 61,70 67,70" fill="#38bdf8"/>
-
-    <!-- Commit Nodes -->
-    <circle cx="64" cy="36" r="4.5" fill="#0d1117" stroke="#38bdf8" stroke-width="2"/>
-    <circle cx="64" cy="36" r="2.2" fill="#38bdf8"/>
-    <circle cx="64" cy="52" r="4.5" fill="#0d1117" stroke="#10b981" stroke-width="2"/>
-    <circle cx="64" cy="52" r="2.2" fill="#10b981"/>
-    <circle cx="46" cy="80" r="4.5" fill="#0d1117" stroke="#38bdf8" stroke-width="2"/>
-    <circle cx="46" cy="80" r="2.2" fill="#38bdf8"/>
-    <circle cx="82" cy="80" r="4.5" fill="#0d1117" stroke="#38bdf8" stroke-width="2"/>
-    <circle cx="82" cy="80" r="2.2" fill="#38bdf8"/>
-    <circle cx="64" cy="98" r="4.5" fill="#0d1117" stroke="#10b981" stroke-width="2"/>
-    <circle cx="64" cy="98" r="2.2" fill="#10b981"/>
-    <circle cx="64" cy="112" r="3.5" fill="#0d1117" stroke="#38bdf8" stroke-width="2"/>
-    <circle cx="64" cy="112" r="1.8" fill="#38bdf8"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 90" fill="none">
+  <!-- Hoodie Cat Mascot (Left <<) -->
+  <g>
+  <path d="M 27.33,9.0 L 28.79,9.0 L 31.41,10.17 L 38.4,15.12 L 41.03,14.54 L 47.15,14.54 L 51.52,15.7 L 52.69,15.7 L 59.1,9.58 L 61.72,9.0 L 62.31,9.58 L 62.89,12.5 L 62.89,21.24 L 69.01,25.03 L 72.22,29.11 L 73.09,32.61 L 73.09,38.15 L 71.64,47.19 L 69.3,47.19 L 70.47,38.15 L 70.47,32.32 L 69.89,30.28 L 66.97,27.36 L 64.35,26.78 L 56.19,27.95 L 47.73,32.32 L 41.9,38.15 L 37.82,45.15 L 36.36,51.56 L 37.24,57.68 L 41.03,63.8 L 48.32,70.8 L 50.06,73.13 L 51.52,76.34 L 51.52,80.13 L 50.65,79.83 L 50.06,77.5 L 48.02,74.3 L 46.86,74.3 L 46.86,75.17 L 48.9,78.09 L 48.9,80.13 L 48.32,78.67 L 43.94,75.17 L 33.16,69.92 L 26.45,65.55 L 23.83,62.93 L 23.25,61.47 L 28.2,63.8 L 29.08,63.8 L 29.08,63.22 L 25.29,60.89 L 22.96,58.55 L 19.17,51.56 L 18.0,46.6 L 18.29,36.69 L 19.46,32.32 L 21.79,27.36 L 25.29,22.99 L 25.29,15.41 L 26.16,10.75 Z" fill="#f0f6fc" />
+  <path d="M 68.14,53.02 L 70.47,53.6 L 69.89,55.93 L 64.64,63.8 L 57.64,70.21 L 57.06,80.13 L 56.19,80.13 L 56.48,73.13 L 55.31,73.13 L 55.02,80.42 L 53.85,81.0 L 52.98,79.25 L 52.98,74.88 L 54.44,70.21 L 63.77,60.89 L 66.39,57.1 Z" fill="#f0f6fc" />
+  <path d="M 57.06,39.02 L 59.39,39.32 L 62.02,43.69 L 66.39,45.44 L 66.39,47.77 L 64.35,48.35 L 64.35,49.23 L 66.39,49.23 L 65.81,50.98 L 64.06,51.27 L 64.35,52.14 L 65.22,52.14 L 64.93,53.31 L 60.56,58.26 L 56.19,60.6 L 50.06,60.89 L 45.4,59.14 L 44.82,58.26 L 47.15,55.93 L 50.06,53.89 L 53.27,52.72 L 53.27,51.85 L 52.69,51.56 L 49.19,53.02 L 45.98,55.93 L 45.4,55.93 L 44.23,57.68 L 43.36,57.68 L 40.74,54.18 L 44.53,52.72 L 48.9,52.14 L 49.19,51.27 L 45.4,51.27 L 40.45,53.02 L 40.15,50.98 L 45.69,49.81 L 53.27,50.1 L 53.56,49.23 L 51.52,48.64 L 46.28,48.64 L 40.74,49.52 L 41.03,48.64 L 43.65,46.31 L 51.52,44.56 L 52.98,43.4 L 55.02,40.19 Z" fill="#f0f6fc" />
+  <path d="M 68.72,50.68 L 73.68,51.85 L 75.43,52.72 L 75.72,53.6 L 74.55,53.89 L 73.09,53.02 L 68.43,51.85 Z" fill="#f0f6fc" />
+  <path d="M 69.6,48.35 L 74.84,48.35 L 75.43,48.64 L 75.43,49.52 L 69.01,49.52 Z" fill="#f0f6fc" />
+  <path d="M 57.35,47.48 L 57.06,48.64 L 59.1,51.56 L 60.56,50.68 L 60.85,49.52 L 62.02,48.35 L 61.72,47.48 Z" fill="#080c14" />
   </g>
 
-  <!-- Typography -->
-  <text x="82" y="38" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="700" fill="#f0f6fc" letter-spacing="-0.3">GitHub</text>
-  <text x="82" y="58" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="18" font-weight="600" fill="#38bdf8" letter-spacing="-0.2">Intelligence</text>
-  <text x="83" y="70" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="7.5" font-weight="600" fill="#8b949e" letter-spacing="1.2">DETERMINISTIC EVIDENCE</text>
+  <!-- Typography (Right >>>) -->
+  <text x="96" y="42" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="28" font-weight="800" fill="#ffffff" letter-spacing="-0.4">GitHub</text>
+  <text x="96" y="70" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="700" fill="#cbd5e1" letter-spacing="-0.3">Intelligence</text>
 </svg>

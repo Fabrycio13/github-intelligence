@@ -29,9 +29,11 @@ _ASSETS = Path(__file__).parent / "dashboard_assets"
 
 class Store(Protocol):
     def list_repositories(self) -> list[dict[str, Any]]: ...
+    def search_repositories(self, *, query: str, limit: int = 10) -> list[dict[str, Any]]: ...
     def get_report(self, report_id: UUID) -> dict[str, Any] | None: ...
     def list_reports(
         self, *, repository_id: UUID | None = None, limit: int = 20, offset: int = 0,
+        include_options: bool = True,
     ) -> dict[str, Any]: ...
     def get_report_details(self, report_id: UUID) -> dict[str, Any] | None: ...
     def get_dashboard(self) -> dict[str, Any]: ...
@@ -144,11 +146,11 @@ def make_server(app: DashboardApp, *, port: int = 8765) -> ThreadingHTTPServer:
                     params = parse_qs(
                         url.query, keep_blank_values=True, strict_parsing=True, max_num_fields=10,
                     )
-                    allowed = (
-                        {"repository_id", "limit", "offset"}
-                        if path == "/api/reports"
-                        else ({"v"} if path in {"/app.css", "/app.js"} else set())
-                    )
+                    allowed = {
+                        "/api/reports": {"repository_id", "limit", "offset", "include_options"},
+                        "/api/repositories/search": {"q", "limit"},
+                        "/app.css": {"v"}, "/app.js": {"v"},
+                    }.get(path, set())
                     if url.scheme or url.netloc or url.fragment or set(params) - allowed:
                         raise ValueError
                     if any(len(values) != 1 for values in params.values()):
@@ -192,6 +194,19 @@ def make_server(app: DashboardApp, *, port: int = 8765) -> ThreadingHTTPServer:
                     self.json(200, {
                         "repositories": app.store.list_repositories(), "updating": app.lock.locked(),
                     })
+                elif path == "/api/repositories/search":
+                    try:
+                        query = params.get("q", [""])[0]
+                        limit_text = params.get("limit", ["10"])[0]
+                        if (not query.strip() or len(query) > 200 or "\x00" in query
+                                or not limit_text.isascii() or not limit_text.isdigit()):
+                            raise ValueError
+                        limit = int(limit_text)
+                        if not 1 <= limit <= 10:
+                            raise ValueError
+                    except ValueError:
+                        raise DashboardError(400, "Busca ou limite inválidos.") from None
+                    self.json(200, {"repositories": app.store.search_repositories(query=query, limit=limit)})
                 elif path == "/api/reports":
                     try:
                         limit_text = params.get("limit", ["20"])[0]
@@ -204,10 +219,14 @@ def make_server(app: DashboardApp, *, port: int = 8765) -> ThreadingHTTPServer:
                         repository_id = (
                             UUID(params["repository_id"][0]) if "repository_id" in params else None
                         )
+                        options_text = params.get("include_options", ["true"])[0]
+                        if options_text not in {"true", "false"}:
+                            raise ValueError
                     except ValueError:
                         raise DashboardError(400, "Filtro ou paginação inválidos.") from None
                     self.json(200, app.store.list_reports(
                         repository_id=repository_id, limit=limit, offset=offset,
+                        include_options=options_text == "true",
                     ))
                 elif path == "/api/dashboard":
                     self.json(200, app.store.get_dashboard())

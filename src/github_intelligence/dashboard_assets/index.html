@@ -7,8 +7,8 @@
 <title>GitHub Intelligence</title>
 <link rel="icon" type="image/png" href="/logo-icon.png">
 
-<link rel="stylesheet" href="/app.css?v=8">
-<script src="/app.js?v=8" defer></script>
+<link rel="stylesheet" href="/app.css?v=15">
+<script src="/app.js?v=15" defer></script>
 <style id="loading-splash-style">
   #initial-loading.initial-loading,
   .initial-loading {
@@ -83,7 +83,7 @@
     width: 5.5px;
     height: 5.5px;
     border-radius: 50% !important;
-    background-color: #38bdf8;
+    background-color: #f0f6fc;
     display: inline-block;
     animation: dotBounce 1.4s infinite ease-in-out both;
   }
@@ -157,21 +157,51 @@
       </a>
     </nav>
 
+    <div class="sidebar-widget">
+      <div class="sidebar-widget-top">
+        <img src="/logo-icon.png" alt="" class="sidebar-widget-avatar" aria-hidden="true" width="34" height="34">
+        <div class="sidebar-widget-badge">
+          <span class="badge-dot pulse"></span>
+          <span>App Ativa</span>
+        </div>
+      </div>
+      <div class="sidebar-widget-body">
+        <strong class="sidebar-widget-title">GitHub Intelligence</strong>
+        <p class="sidebar-widget-desc">Evidência determinística criptografada (DPAPI + RLS).</p>
+      </div>
+      <div class="sidebar-widget-meta">
+        <span class="code-pill">ID: 5380709</span>
+        <span class="sidebar-widget-tag">v1.0 Nativo</span>
+      </div>
+    </div>
   </aside>
 
   <main id="main-content" tabindex="-1">
     <header>
-      <div>
+      <div class="header-left">
+        <div class="header-status-pill">
+          <span class="badge-dot pulse"></span>
+          <span>GitHub App Conectada</span>
+        </div>
         <h1 id="page-title">GitHub Intelligence</h1>
         <p id="page-description" class="muted">Painel operacional com evidências determinísticas.</p>
       </div>
-      <div class="actions">
-        <button id="add-repository" class="btn-primary" type="button" aria-expanded="false" aria-controls="onboarding">
-          Adicionar repositório
-        </button>
-        <button id="reload" class="btn-secondary" type="button">
-          Recarregar dados
-        </button>
+      <div class="header-right">
+        <div class="header-profile" title="Operador ativo">
+          <img src="/logo-icon.png" alt="" class="profile-avatar" aria-hidden="true" width="32" height="32">
+          <div class="profile-info">
+            <span class="profile-name">Fabrycio13</span>
+            <span class="profile-role muted">Dev Intelligence</span>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="add-repository" class="btn-primary" type="button" aria-expanded="false" aria-controls="onboarding">
+            Adicionar repositório
+          </button>
+          <button id="reload" class="btn-secondary" type="button">
+            Recarregar dados
+          </button>
+        </div>
       </div>
     </header>
 
@@ -196,16 +226,31 @@
         <h2>Histórico de relatórios</h2>
         <span id="analysis-count" class="muted"></span>
       </div>
-      <div id="analysis-filters" class="filter-chips"></div>
-      <div id="analyses"></div>
-      <div id="analysis-pagination" class="pagination"></div>
+      <div id="analysis-filters" class="analysis-controls">
+        <div class="analysis-search-wrap">
+          <label for="analysis-search" class="muted">Buscar repositório</label>
+          <input id="analysis-search" class="feed-search-input" type="search" maxlength="200" placeholder="Digite o nome do repositório…" autocomplete="off" spellcheck="false" aria-controls="analysis-search-results">
+          <div id="analysis-search-results" class="analysis-search-results" aria-label="Repositórios encontrados" aria-live="polite" hidden></div>
+        </div>
+        <button id="analysis-all" class="btn-secondary" type="button">Todos os repositórios</button>
+      </div>
+      <p id="analysis-selection" class="muted">Todos os repositórios</p>
+      <p id="analysis-feedback" class="muted" role="status" aria-live="polite"></p>
+      <button id="analysis-new" class="btn-secondary" type="button" hidden>Novas análises disponíveis · Atualizar lista</button>
+      <div id="analyses" aria-busy="false"></div>
+      <div id="analysis-pagination" class="pagination">
+        <button id="analysis-more" class="btn-secondary" type="button" hidden>Carregar mais</button>
+      </div>
     </section>
 
     <!-- Página 4: Relatório Detalhado -->
     <section data-page="relatorio" hidden>
       <div class="toolbar">
         <h2 id="report-title">Relatório salvo</h2>
-        <button id="close-report" class="btn-secondary" type="button">Fechar relatório</button>
+        <div class="actions">
+          <button id="copy-report" class="btn-secondary" type="button">Copiar Markdown</button>
+          <button id="close-report" class="btn-secondary" type="button">Fechar relatório</button>
+        </div>
       </div>
       <p id="report-status" class="muted"></p>
       <pre id="report-content"></pre>
@@ -215,6 +260,33 @@
       Sem agendamento, IA ou atualização automática. Merge não comprova deploy ou validação funcional.
     </footer>
   </main>
+
+  <!-- Drawer Slide-over para Inspeção de Relatórios -->
+  <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+  <aside id="report-drawer" class="report-drawer" role="dialog" tabindex="-1" aria-labelledby="drawer-title" aria-modal="true" hidden>
+    <div class="drawer-header">
+      <div class="drawer-header-info">
+        <span class="drawer-eyebrow">Inspeção de Evidência Determinística</span>
+        <h2 id="drawer-title" class="drawer-title">Carregando análise…</h2>
+        <p id="drawer-meta" class="drawer-meta muted"></p>
+      </div>
+      <div class="drawer-header-actions">
+        <button id="drawer-copy-btn" class="btn-secondary btn-sm" type="button" title="Copiar Markdown">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <span class="btn-text">Copiar</span>
+        </button>
+        <button id="drawer-fullscreen-btn" class="btn-secondary btn-sm" type="button" title="Abrir página dedicada">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6m-6 5 6 6M9 21H3v-6m6-5-6-6"/></svg>
+          <span class="btn-text">Expandir</span>
+        </button>
+        <button id="drawer-close-btn" class="drawer-close-btn" type="button" aria-label="Fechar painel" title="Fechar (Esc)">✕</button>
+      </div>
+    </div>
+    <div class="drawer-body">
+      <div id="drawer-status-banner" class="drawer-status-banner"></div>
+      <pre id="drawer-content" class="drawer-content"></pre>
+    </div>
+  </aside>
 </div>
 
 <!-- Modal Dialog de Onboarding -->

@@ -13,9 +13,15 @@ REPORT = "00000000-0000-0000-0000-000000000002"
 
 
 class Store:
-    def list_reports(self, *, repository_id=None, limit=20, offset=0):
-        return {"reports": [], "repository_options": [], "total": 0, "limit": limit, "offset": offset,
-                "filter": str(repository_id) if repository_id else None}
+    def search_repositories(self, *, query, limit=10):
+        return [{"id": REPO, "full_name": "owner/repo"}][:limit] if query == "RePo" else []
+
+    def list_reports(self, *, repository_id=None, limit=20, offset=0, include_options=True):
+        result = {"reports": [], "total": 0, "limit": limit, "offset": offset,
+                  "filter": str(repository_id) if repository_id else None}
+        if include_options:
+            result["repository_options"] = []
+        return result
 
     def get_dashboard(self):
         return {"connected_repositories": 1, "total_reports": 0}
@@ -76,6 +82,23 @@ def test_browser_favicon_request_does_not_fail_or_trigger_collection():
         assert writes == []
 
 
+def test_repository_search_is_bounded_strict_and_read_only():
+    with running() as (_, client, writes):
+        response = client.get("/api/repositories/search", params={"q": "RePo", "limit": 1})
+        assert response.status_code == 200
+        assert response.json() == {"repositories": [{"id": REPO, "full_name": "owner/repo"}]}
+        assert client.get("/api/repositories/search?q=missing").json() == {"repositories": []}
+        for query in (
+            "", "q=", "q=%20%20", "q=x&limit=0", "q=x&limit=11", "q=x&limit=-1",
+            "q=x&limit=1.0", "q=x&limit=", "q=x&limit=１０", "q=x&unknown=1",
+            "q=x&q=y", "q=x&limit=1&limit=2", "q=%00", "q=" + "x" * 201,
+        ):
+            assert client.get("/api/repositories/search?" + query).status_code == 400, query
+        assert client.get("/api/repositories/search", params={"q": "x" * 200}).status_code == 200
+        assert client.get("/api/repositories/search?q=x", headers={"Host": "evil.test"}).status_code == 403
+        assert writes == []
+
+
 def test_read_only_history_summary_and_details_routes_preserve_original_report():
     with running() as (_, client, writes):
         assert client.get("/api/reports").json() == {
@@ -102,6 +125,17 @@ def test_read_only_history_summary_and_details_routes_preserve_original_report()
         assert writes == []
 
 
+def test_history_can_omit_options_without_changing_pagination_or_legacy_defaults():
+    with running() as (_, client, writes):
+        page = client.get(f"/api/reports?repository_id={REPO}&limit=10&offset=10&include_options=false")
+        assert page.status_code == 200
+        assert page.json() == {"reports": [], "total": 0, "limit": 10, "offset": 10, "filter": REPO}
+        assert "repository_options" in client.get("/api/reports?include_options=true").json()
+        for value in ("", "False", "0", "1", "yes", "true&include_options=false"):
+            assert client.get("/api/reports?include_options=" + value).status_code == 400
+        assert writes == []
+
+
 def test_read_only_endpoints_report_storage_failure_instead_of_zero(monkeypatch):
     from github_intelligence.storage import StorageError
 
@@ -109,9 +143,12 @@ def test_read_only_endpoints_report_storage_failure_instead_of_zero(monkeypatch)
         raise StorageError("sensitive driver diagnostic")
 
     with running() as (app, client, writes):
-        for method in ("list_reports", "get_dashboard", "get_report_details"):
+        for method in ("list_reports", "get_dashboard", "get_report_details", "search_repositories"):
             monkeypatch.setattr(app.store, method, unavailable)
-        for path in ("/api/reports", "/api/dashboard", f"/api/reports/{REPORT}/details"):
+        for path in (
+            "/api/reports", "/api/dashboard", f"/api/reports/{REPORT}/details",
+            "/api/repositories/search?q=repo",
+        ):
             response = client.get(path)
             assert response.status_code == 503
             assert set(response.json()) == {"error"}
