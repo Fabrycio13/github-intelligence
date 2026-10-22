@@ -93,7 +93,7 @@ body {
 
 [hidden] { display: none !important; }
 
-/* Loading Splash Centralizado: Loading com 3 bolinhas */
+/* Loading Splash Centralizado: Mascote Git Cat + Loading com 3 bolinhas */
 #initial-loading.initial-loading,
 .initial-loading {
   position: fixed !important;
@@ -106,13 +106,39 @@ body {
   z-index: 99999 !important;
   background-color: var(--bg-app, #0d1117) !important;
   display: flex !important;
-  flex-direction: row !important;
+  flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
   padding: 0 !important;
   margin: 0 !important;
   box-sizing: border-box !important;
   transition: opacity 0.35s ease, transform 0.35s ease !important;
+}
+
+.loading-container {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 14px !important;
+}
+
+.loading-mascot-box {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  animation: mascotFloat 2s ease-in-out infinite !important;
+}
+
+@keyframes mascotFloat {
+  0%, 100% {
+    transform: translateY(0) scale(0.98);
+    opacity: 0.85;
+  }
+  50% {
+    transform: translateY(-4px) scale(1.02);
+    opacity: 1;
+  }
 }
 
 .loading-simple {
@@ -124,7 +150,7 @@ body {
 
 .loading-label {
   font-family: var(--font-sans) !important;
-  font-size: 20px !important;
+  font-size: 17px !important;
   font-weight: 500 !important;
   color: var(--text-main, #e6edf3) !important;
   letter-spacing: 0.5px !important;
@@ -135,12 +161,12 @@ body {
   display: inline-flex !important;
   align-items: center !important;
   gap: 5px !important;
-  height: 20px !important;
+  height: 18px !important;
 }
 
 .loading-dots .dot {
-  width: 6px !important;
-  height: 6px !important;
+  width: 5.5px !important;
+  height: 5.5px !important;
   border-radius: 50% !important;
   background-color: var(--accent-primary, #38bdf8) !important;
   display: inline-block !important;
