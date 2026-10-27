@@ -1,5 +1,0 @@
-# Memory Index
-
-- [0002. Redesenho do Mascote — Analytical Octocat](file:///c:/Users/Usabit/Desktop/Projetos/GitHub%20Intelligence/memory/decisions/0002-analytical-octocat-mascot.md): Definição anterior do mascote inspirado no Octocat com identidade proprietária analítica (substituído por 0004).
-- [0003. Redesenho do Dashboard — Workstation de Evidências em Alta Densidade](file:///c:/Users/Usabit/Desktop/Projetos/GitHub%20Intelligence/memory/decisions/0003-redesign-dashboard-workstation.md): Reestruturação da UI eliminando padrões genéricos de IA em favor da Ilha Elevada Flutuante (Floating Island), feed Linear-style e monitoramento operacional direto.
-- [0004. Redesenho de Identidade — Hoodie Cat Monocromático & Tipografia de Alto Contraste](file:///c:/Users/Usabit/Desktop/Projetos/GitHub%20Intelligence/memory/decisions/0004-hoodie-cat-monochrome-branding.md): Mascote caricato em espaço negativo (gato de capuz hacker sem neon), layout horizontal mascote `<<` + nome `>>>` com tipografia grande e nítida.

@@ -1,7 +1,20 @@
-<!-- project-memory:begin v1 -->
-## Project Memory
+# Agent Instructions
 
-Portable memory lives in `memory/` (see `memory/README.md`).
+## Domain and Architecture
 
-Before non-trivial work, inspect the project and populate only verified context; do not invent facts.
-<!-- project-memory:end -->
+- **Domain Glossary:** See [GLOSSARY.md](GLOSSARY.md).
+- **Architecture Decision Records (ADRs):** See [docs/adr/](docs/adr/).
+
+## Agent skills
+
+### Issue tracker
+
+GitHub issues tracked via `gh` CLI (`Fabrycio13/github-intelligence`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical triage roles mapped 1:1. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout (`GLOSSARY.md` + `docs/adr/`). See `docs/agents/domain.md`.
