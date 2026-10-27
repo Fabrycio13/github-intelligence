@@ -176,7 +176,7 @@ CLI/configuração → GitHub App ou público explícito → coleta → snapshot
                                         avaliação determinística → Markdown
 ```
 
-Módulos: `models`, `config`, `repositories`, `auth`, `github`, `collect`, `evaluate`, `report`, `storage`, `persistence`, `db_health`, `__main__`. O núcleo de coleta/avaliação será reaproveitado no FastAPI. Agendador, autenticação de usuários, autorização de endpoints, IA e e-mail entram em entregas posteriores.
+Módulos: `models`, `config`, `repositories`, `auth`, `github`, `collect`, `evaluate`, `report`, `storage`, `persistence`, `db_health`, `__main__`. O núcleo de coleta/avaliação será reaproveitado no FastAPI. Agendador, autenticação de usuários, autorização de endpoints, IA e e-mail entram em entregas posteriores. Para terminologia e decisões arquiteturais consolidadas, consulte [GLOSSARY.md](GLOSSARY.md) e [docs/adr/](docs/adr/).
 
 ## Referências oficiais
 
