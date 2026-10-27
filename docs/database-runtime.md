@@ -2,7 +2,7 @@
 
 ## Estado
 
-- Migration `0001` aplicada manualmente pelo usuário e catálogo conferido: ver `supabase-migration-0001-applied-2026-10-19.md`.
+- Migration `0001` aplicada manualmente pelo usuário e catálogo conferido: ver `archive/supabase-migration-0001-applied-2026-10-19.md`.
 - O usuário informou a execução de `0002_runtime_login.sql`; consultas read-only confirmaram `github_intelligence_worker` e o vínculo restrito ao grupo runtime.
 - `github-intelligence db check` passou contra o Supabase com o login worker, TLS `verify-full` e 10 tabelas conferidas (19/10/2026).
 - Implementados conexão/diagnóstico e o fluxo local `db import`, que por padrão só mostra plano e exige `--apply` para coletar e gravar.
