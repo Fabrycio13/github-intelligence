@@ -2,7 +2,8 @@
 
 import psycopg
 import pytest
-from test_storage import prepared_db as prepared_db
+
+from tests.integration.test_storage import prepared_db as prepared_db
 
 
 @pytest.fixture

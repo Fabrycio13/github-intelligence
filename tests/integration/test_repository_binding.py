@@ -6,12 +6,12 @@ from uuid import uuid4
 
 import psycopg
 import pytest
-from test_database_health import runtime_database as runtime_database
-from test_storage import prepared_db as prepared_db
 
 from github_intelligence.storage import ProjectScope, StorageError
+from tests.integration.test_database_health import runtime_database as runtime_database
+from tests.integration.test_storage import prepared_db as prepared_db
 
-MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
+MIGRATIONS = Path(__file__).resolve().parents[2] / "migrations"
 SCHEMA = "github_intelligence"
 WORKER = "github_intelligence_worker"
 VERIFIED = {

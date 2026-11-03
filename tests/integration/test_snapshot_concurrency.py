@@ -2,8 +2,9 @@
 
 import psycopg
 import pytest
-from test_storage import SCHEMA, _running, _snapshot
-from test_storage import prepared_db as prepared_db
+
+from tests.integration.test_storage import SCHEMA, _running, _snapshot
+from tests.integration.test_storage import prepared_db as prepared_db
 
 
 def test_snapshot_insert_blocks_finalization_until_commit(prepared_db):

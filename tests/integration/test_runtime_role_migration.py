@@ -5,10 +5,10 @@ from pathlib import Path
 import psycopg
 import pytest
 
-pytest_plugins = ("test_storage",)
+pytest_plugins = ("tests.integration.test_storage",)
 
 
-MIGRATION = Path(__file__).resolve().parents[1] / "migrations" / "0002_runtime_login.sql"
+MIGRATION = Path(__file__).resolve().parents[2] / "migrations" / "0002_runtime_login.sql"
 WORKER = "github_intelligence_worker"
 
 

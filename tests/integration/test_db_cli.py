@@ -4,10 +4,10 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import pytest
-from test_database_health import runtime_database as runtime_database
-from test_storage import prepared_db as prepared_db
 
 from github_intelligence.__main__ import main
+from tests.integration.test_database_health import runtime_database as runtime_database
+from tests.integration.test_storage import prepared_db as prepared_db
 
 
 def test_database_help_is_available_without_github_configuration(capsys):

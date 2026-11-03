@@ -5,9 +5,9 @@ from uuid import UUID
 
 import psycopg
 import pytest
-from test_storage import prepared_db as _prepared_db
 
 from github_intelligence.storage import ProjectScope
+from tests.integration.test_storage import prepared_db as _prepared_db
 
 prepared_db = _prepared_db
 
