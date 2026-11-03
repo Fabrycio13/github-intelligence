@@ -126,6 +126,9 @@ def make_server(app: DashboardApp, *, port: int = 8765) -> ThreadingHTTPServer:
                         "/api/reports": {"repository_id", "limit", "offset", "include_options"},
                         "/api/repositories/search": {"q", "limit"},
                         "/app.css": {"v"}, "/app.js": {"v"},
+                        "/modules/loader.js": {"v"},
+                        "/modules/sidebar.js": {"v"},
+                        "/modules/history.js": {"v"},
                     }.get(path, set())
                     if url.scheme or url.netloc or url.fragment or set(params) - allowed:
                         raise ValueError
@@ -136,6 +139,7 @@ def make_server(app: DashboardApp, *, port: int = 8765) -> ThreadingHTTPServer:
                 static_paths = {
                     "/", "/app.js", "/app.css", "/bg.jpg", "/bg.webp",
                     "/logo.png", "/logo-icon.png", "/logo.svg", "/logo-icon.svg",
+                    "/modules/loader.js", "/modules/sidebar.js", "/modules/history.js",
                 }
                 if path in static_paths:
                     image_paths = {
@@ -161,8 +165,14 @@ def make_server(app: DashboardApp, *, port: int = 8765) -> ThreadingHTTPServer:
                         "/": ("index.html", "text/html; charset=utf-8"),
                         "/app.js": ("app.js", "text/javascript; charset=utf-8"),
                         "/app.css": ("app.css", "text/css; charset=utf-8"),
+                        "/modules/loader.js": ("modules/loader.js", "text/javascript; charset=utf-8"),
+                        "/modules/sidebar.js": ("modules/sidebar.js", "text/javascript; charset=utf-8"),
+                        "/modules/history.js": ("modules/history.js", "text/javascript; charset=utf-8"),
                     }[path]
-                    text = (_ASSETS / name).read_text(encoding="utf-8")
+                    target_file = _ASSETS / name
+                    if not target_file.exists():
+                        raise DashboardError(404, "Arquivo não encontrado.")
+                    text = target_file.read_text(encoding="utf-8")
                     self.send(200, text.replace("__REQUEST_TOKEN__", app.token).encode("utf-8"), content_type)
                 elif path == "/favicon.ico":
                     self.send(204, b"", "image/x-icon")
