@@ -28,7 +28,7 @@ def _binary_dir() -> Path:
         reason = f"Native PostgreSQL 17 missing at {path}: {', '.join(missing)}"
         if configured is not None:
             pytest.fail(f"Invalid GHI_PG_BIN: {reason}")
-        pytest.skip(f"{reason}; run uv run python scripts/prepare_test_postgres.py")
+        pytest.skip(f"{reason}; run uv run python scripts/db/prepare_test_postgres.py")
     try:
         version = subprocess.run(
             [str(path / "postgres.exe"), "--version"],

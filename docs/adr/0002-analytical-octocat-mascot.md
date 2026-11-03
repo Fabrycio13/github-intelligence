@@ -19,4 +19,4 @@ Adotado o conceito do **Analytical Octocat**:
 ## Consequências
 - A interface e documentação ganham identidade visual marcante, acolhedora e intimamente conectada ao universo GitHub sem ser cópia direta.
 - Conformidade mantida com todos os testes automatizados do dashboard shell (`test_shell_serves_brand_logo_and_icon`).
-- Regeneração e manutenção facilitada através do script `scripts/generate_logos.ps1`.
+- Regeneração e manutenção facilitada através do script `scripts/branding/generate_logos.ps1`.

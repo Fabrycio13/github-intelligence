@@ -5,7 +5,7 @@ import psycopg
 import pytest
 from test_storage import prepared_db as prepared_db
 
-SQL = Path(__file__).resolve().parents[1] / "scripts" / "provision_pilot.sql"
+SQL = Path(__file__).resolve().parents[1] / "scripts" / "db" / "provision_pilot.sql"
 
 
 def database_rows(db):

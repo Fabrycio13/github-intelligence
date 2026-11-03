@@ -3,7 +3,7 @@
 Source: PostgreSQL's Windows download links to EnterpriseDB; EDB's binaries page
 links fileid=1260616 to the pinned ZIP below. SHA256 was measured from that
 HTTPS download (not an independently published vendor signature).
-Run: uv run python scripts/prepare_test_postgres.py
+Run: uv run python scripts/db/prepare_test_postgres.py
 An alternate trusted HTTPS ZIP requires --url AND --sha256. No scripts are run.
 """
 
