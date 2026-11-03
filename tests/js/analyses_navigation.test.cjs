@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const source = fs.readFileSync(path.join(__dirname, '../src/github_intelligence/dashboard_assets/app.js'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../../src/github_intelligence/dashboard_assets/app.js'), 'utf8');
 const repo = '00000000-0000-0000-0000-000000000001';
 const id = n => '00000000-0000-0000-0000-' + String(n).padStart(12, '0');
 const report = n => ({id: id(n), repositories: [{id: repo, full_name: 'owner/repo'}], complete: true,
