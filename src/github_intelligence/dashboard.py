@@ -7,17 +7,14 @@ import secrets
 import subprocess
 import sys
 from collections.abc import Callable
-from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import Lock
 from typing import Any, Protocol
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
-from pydantic import ValidationError
-
 from github_intelligence.config import ConfigurationError
+from github_intelligence.dashboard_coordination import DashboardCoordinator, DashboardError
 from github_intelligence.github import GitHubError
 from github_intelligence.models import ReportWindow
 from github_intelligence.onboarding import OnboardingError, RepositoryOnboarding
@@ -39,12 +36,6 @@ class Store(Protocol):
     def get_dashboard(self) -> dict[str, Any]: ...
 
 
-class DashboardError(Exception):
-    def __init__(self, status: int, message: str):
-        self.status = status
-        super().__init__(message)
-
-
 class DashboardApp:
     def __init__(
         self, store: Store, scope: ProjectScope, *,
@@ -56,31 +47,16 @@ class DashboardApp:
         self.refresh = refresh
         self.onboarding = onboarding
         self.token = secrets.token_urlsafe(32)
-        self.lock = Lock()
+        self.coordinator = DashboardCoordinator()
+        self.lock = self.coordinator.lock
 
     def update(self, payload: object) -> None:
-        if not isinstance(payload, dict) or set(payload) != {"repository_id", "since", "until"}:
-            raise DashboardError(400, "Informe repositório e intervalo com timezone.")
-        try:
-            repository_id = str(UUID(payload["repository_id"]))
-            window = ReportWindow(since=payload["since"], until=payload["until"])
-        except (ValueError, TypeError, ValidationError, AttributeError):
-            raise DashboardError(400, "Repositório ou intervalo inválido.") from None
-        if window.until > datetime.now(timezone.utc):
-            raise DashboardError(400, "O fim do intervalo não pode estar no futuro.")
-        if not self.lock.acquire(blocking=False):
-            raise DashboardError(409, "Uma coleta já está em andamento. Aguarde.")
-        try:
-            repo = next((r for r in self.store.list_repositories() if r["id"] == repository_id), None)
-            if repo is None:
-                raise DashboardError(404, "Repositório não encontrado neste projeto.")
-            if repo["status"] != "active" or repo["installation_status"] != "active":
-                raise DashboardError(409, "Repositório ou instalação não está ativo.")
-            if repo.get("last_status") in {"pending", "running"}:
-                raise DashboardError(409, "Este repositório já tem uma coleta em andamento.")
-            self.refresh(repo["full_name"], window)
-        finally:
-            self.lock.release()
+        self.coordinator.coordinate_update(self.store, self.refresh, payload)
+
+    def bind(self, payload: object) -> dict[str, Any]:
+        if self.onboarding is None:
+            raise DashboardError(503, "Vinculação de repositórios não configurada neste painel.")
+        return self.coordinator.coordinate_bind(self.onboarding, payload)
 
 
 def cli_refresh(
@@ -278,12 +254,7 @@ def make_server(app: DashboardApp, *, port: int = 8765) -> ThreadingHTTPServer:
                 elif self.path == "/api/repositories/inspect":
                     self.json(200, app.onboarding.inspect(payload))
                 else:
-                    if not app.lock.acquire(blocking=False):
-                        raise DashboardError(409, "Outra operação está em andamento. Aguarde.")
-                    try:
-                        self.json(200, app.onboarding.bind(payload))
-                    finally:
-                        app.lock.release()
+                    self.json(200, app.bind(payload))
             except (DashboardError, OnboardingError) as error:
                 self.json(error.status, {"error": str(error)})
             except GitHubError:
