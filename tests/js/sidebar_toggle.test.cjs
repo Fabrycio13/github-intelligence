@@ -4,7 +4,16 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const source = fs.readFileSync(path.join(__dirname, '../../src/github_intelligence/dashboard_assets/app.js'), 'utf8');
+const assetsDir = path.join(__dirname, '../../src/github_intelligence/dashboard_assets');
+
+const scriptFiles = [
+  'modules/loader.js',
+  'modules/sidebar.js',
+  'modules/history.js',
+  'app.js',
+];
+
+const scriptSources = scriptFiles.map(file => fs.readFileSync(path.join(assetsDir, file), 'utf8'));
 
 function page() {
   const nodes = new Map();
@@ -25,12 +34,13 @@ function page() {
   const requests = [];
   const window = node();
   const location = {hash: '#/dashboard'};
-  vm.runInNewContext(source, {
+  const context = vm.createContext( {
     window, location, URLSearchParams,
     history: {replaceState(_state, _title, value) { location.hash = value; }},
     fetch(url) { requests.push(url); return new Promise(() => {}); },
     document: {querySelector: get, querySelectorAll: () => [], createElement: node, createElementNS: node},
   });
+  for (const src of scriptSources) vm.runInContext(src, context);
   return {get, requests, window, location};
 }
 

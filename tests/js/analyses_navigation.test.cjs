@@ -4,7 +4,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const source = fs.readFileSync(path.join(__dirname, '../../src/github_intelligence/dashboard_assets/app.js'), 'utf8');
+const assetsDir = path.join(__dirname, '../../src/github_intelligence/dashboard_assets');
+const scriptFiles = [
+  'modules/loader.js',
+  'modules/sidebar.js',
+  'modules/history.js',
+  'app.js',
+];
+const scriptSources = scriptFiles.map(file => fs.readFileSync(path.join(assetsDir, file), 'utf8'));
 const repo = '00000000-0000-0000-0000-000000000001';
 const id = n => '00000000-0000-0000-0000-' + String(n).padStart(12, '0');
 const report = n => ({id: id(n), repositories: [{id: repo, full_name: 'owner/repo'}], complete: true,
@@ -30,12 +37,13 @@ function page() {
   get('#report-drawer').hidden = true; get('#analysis-new').hidden = true;
   const requests = [], timers = new Map(); let timerId = 0;
   const window = node(), location = {hash: '#/analises'}; window.confirm = () => true;
-  vm.runInNewContext(source, {window, location, URLSearchParams, AbortController,
+  const context = vm.createContext( {window, location, URLSearchParams, AbortController,
     setTimeout(fn) { const key = ++timerId; timers.set(key, fn); return key; }, clearTimeout(key) { timers.delete(key); },
     requestAnimationFrame(fn) { fn(); }, history: {replaceState(_state, _title, value) { location.hash = value; }},
     fetch(url, options) { return new Promise(resolve => requests.push({url, options, resolve})); },
     document: {querySelector: get, querySelectorAll: () => [], createElement: node, createElementNS: (_ns, tag) => node(tag), get activeElement() { return activeElement; }},
   });
+  for (const src of scriptSources) vm.runInContext(src, context);
   return {get, requests, window, location,
     async respond(match, data, status = 200) {
       const request = requests.find(item => !item.done && item.url.includes(match));

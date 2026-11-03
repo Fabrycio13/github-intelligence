@@ -81,6 +81,37 @@ def test_browser_favicon_request_does_not_fail_or_trigger_collection():
         assert response.content == b""
         assert writes == []
 
+def test_modular_frontend_assets_served_with_strict_allowlist_and_security_headers():
+    with running() as (app, client, writes):
+        modules = [
+            ("/modules/loader.js", "DashboardLoader"),
+            ("/modules/sidebar.js", "DashboardSidebar"),
+            ("/modules/history.js", "DashboardHistory"),
+            ("/app.js", "DashboardApp"),
+        ]
+        for url_path, expected_namespace in modules:
+            response = client.get(url_path)
+            assert response.status_code == 200
+            assert response.headers["Content-Type"] == "text/javascript; charset=utf-8"
+            assert response.headers["Cache-Control"] == "no-store"
+            assert response.headers["X-Content-Type-Options"] == "nosniff"
+            assert response.headers["Referrer-Policy"] == "no-referrer"
+            assert "Content-Security-Policy" in response.headers
+            assert expected_namespace in response.text
+
+            # Accepts ?v= cache-busting query parameter
+            assert client.get(f"{url_path}?v=15").status_code == 200
+
+            # Rejects unexpected query parameters with 400
+            assert client.get(f"{url_path}?bad=1").status_code == 400
+
+        # Disallowed files and traversal attempts return 404
+        assert client.get("/modules/missing.js").status_code == 404
+        assert client.get("/modules/../dashboard.py").status_code == 404
+        assert client.get("/modules/").status_code == 404
+        assert client.get("/modules").status_code == 404
+        assert writes == []
+
 
 def test_repository_search_is_bounded_strict_and_read_only():
     with running() as (_, client, writes):
