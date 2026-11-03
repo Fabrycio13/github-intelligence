@@ -24,7 +24,7 @@ O mascote anterior (Analytical Octocat com monóculo HUD ciano) apresentava comp
    - Reordenação flexbox: Logotipo alinhado à esquerda (`order: 1`), e botão de recolher menu posicionado no canto superior direito (`order: 2`), permitindo ao nome respirar sem compressão lateral.
    - Remoção de brilhos e glows cianos nos estados ativos do menu e avatar do widget.
 4. **Ativos Gerados**:
-   - `scripts/generate_logos.ps1`: Script determinístico de renderização GDI+.
+   - `scripts/branding/generate_logos.ps1`: Script determinístico de renderização GDI+.
    - `src/github_intelligence/dashboard_assets/logo-icon.png` (128x128).
    - `src/github_intelligence/dashboard_assets/logo.png` (360x90).
    - `docs/logo.png` (360x90).

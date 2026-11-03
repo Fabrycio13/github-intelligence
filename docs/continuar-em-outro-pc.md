@@ -26,7 +26,7 @@ uv run ruff check src tests scripts
 uv run mypy
 ```
 
-Os testes de banco usam PostgreSQL nativo descartável no Windows; o harness prepara os binários locais na primeira execução. Não conectam ao Supabase. Consulte `tests/conftest.py` e `scripts/prepare_test_postgres.py` caso a rede corporativa bloqueie a preparação. Não substituir por SQLite/mocks e não instalar serviço ou iniciar Docker para contornar isso.
+Os testes de banco usam PostgreSQL nativo descartável no Windows; o harness prepara os binários locais na primeira execução. Não conectam ao Supabase. Consulte `tests/conftest.py` e `scripts/db/prepare_test_postgres.py` caso a rede corporativa bloqueie a preparação. Não substituir por SQLite/mocks e não instalar serviço ou iniciar Docker para contornar isso.
 
 ## 2. O que NÃO acompanha o clone
 

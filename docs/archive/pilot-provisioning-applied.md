@@ -2,7 +2,7 @@
 
 ## Authorized scope
 
-Business seed `scripts/provision_pilot.sql`, explicitly approved by the user. Applied through the user's existing Chrome session, Supabase SQL Editor for project `cpkgvpuivjzplerzlpxz`. No schema migration, permissions change, user creation, membership grant or PR import was included.
+Business seed `scripts/db/provision_pilot.sql`, explicitly approved by the user. Applied through the user's existing Chrome session, Supabase SQL Editor for project `cpkgvpuivjzplerzlpxz`. No schema migration, permissions change, user creation, membership grant or PR import was included.
 
 SQL Editor query handle: `728c7adf-10ff-495a-9ab8-bce097823ec3`.
 

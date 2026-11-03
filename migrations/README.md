@@ -40,7 +40,7 @@ Preparar um PostgreSQL **nativo real**, isolado e sem serviço instalado. O harn
 
 ```bash
 uv sync --locked
-uv run python scripts/prepare_test_postgres.py
+uv run python scripts/db/prepare_test_postgres.py
 uv run pytest -q -ra
 uv run mypy
 uv run ruff check src tests scripts

@@ -1,6 +1,10 @@
 Add-Type -AssemblyName System.Drawing
 
-$jsonContent = Get-Content -Raw "scripts/simplified_loops.json"
+$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
+if (-not $scriptDir) { $scriptDir = "." }
+$repoRoot = (Resolve-Path (Join-Path $scriptDir "..\..")).Path
+
+$jsonContent = Get-Content -Raw (Join-Path $scriptDir "simplified_loops.json")
 $jsonLoops = $jsonContent | ConvertFrom-Json
 
 function Draw-HoodieCat {
@@ -70,7 +74,7 @@ $startX = (128.0 - $targetW) / 2.0
 $startY = (128.0 - $targetH) / 2.0
 Draw-HoodieCat $gIcon $startX $startY $targetH
 
-$iconPath = "src/github_intelligence/dashboard_assets/logo-icon.png"
+$iconPath = Join-Path $repoRoot "src/github_intelligence/dashboard_assets/logo-icon.png"
 $iconBmp.Save($iconPath, [System.Drawing.Imaging.ImageFormat]::Png)
 $gIcon.Dispose()
 $iconBmp.Dispose()
@@ -98,11 +102,11 @@ $brushSlate = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::From
 $gLogo.DrawString("GitHub", $fontMain, $brushWhite, 96, 12)
 $gLogo.DrawString("Intelligence", $fontSub, $brushSlate, 96, 44)
 
-$logoPath = "src/github_intelligence/dashboard_assets/logo.png"
+$logoPath = Join-Path $repoRoot "src/github_intelligence/dashboard_assets/logo.png"
 $logoBmp.Save($logoPath, [System.Drawing.Imaging.ImageFormat]::Png)
 
 # Also update docs/logo.png
-$docsLogoPath = "docs/logo.png"
+$docsLogoPath = Join-Path $repoRoot "docs/logo.png"
 $logoBmp.Save($docsLogoPath, [System.Drawing.Imaging.ImageFormat]::Png)
 
 $fontMain.Dispose()
