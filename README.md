@@ -26,7 +26,7 @@ uv run ruff check src tests
 uv run github-intelligence --help
 ```
 
-Para verificar a navegação do painel sem instalar dependências JavaScript, com Node.js disponível: `node --test tests/dashboard_routes.test.cjs`. Esses testes isolam rotas e retorno; a renderização e as interações também precisam de smoke em navegador.
+Para verificar a navegação do painel sem instalar dependências JavaScript, com Node.js disponível: `node --test tests/js/*.test.cjs`. Esses testes isolam rotas e retorno; a renderização e as interações também precisam de smoke em navegador.
 
 `uv.lock` fixa o ambiente resolvido. Não use o `pip` global, que pode apontar para outro Python. Para um checkout novo, copie `config/repositories.example.json` para `config/repositories.json` (a configuração real é local e ignorada pelo Git).
 
