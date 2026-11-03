@@ -1,6 +1,6 @@
 """Onboarding endpoints preserve explicit confirm and localhost write protection."""
-from test_dashboard import running
-from test_onboarding import confirmation, service
+from tests.helpers import confirmation, service
+from tests.unit.test_dashboard import running
 
 
 def test_http_inspection_is_read_only_and_binding_requires_explicit_request(tmp_path):

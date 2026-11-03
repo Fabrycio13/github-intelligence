@@ -7,10 +7,11 @@ from pathlib import Path
 
 import psycopg
 import pytest
-from conftest import _binary_dir
 from psycopg.conninfo import conninfo_to_dict
 
-_PREPARE = runpy.run_path(str(Path(__file__).parents[1] / "scripts/db/prepare_test_postgres.py"))
+from tests.conftest import _binary_dir
+
+_PREPARE = runpy.run_path(str(Path(__file__).resolve().parents[2] / "scripts/db/prepare_test_postgres.py"))
 
 
 def test_native_postgres_17_is_loopback_only(pg_cluster_dsn):

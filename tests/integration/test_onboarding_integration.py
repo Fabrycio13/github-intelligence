@@ -4,15 +4,15 @@ from pathlib import Path
 from threading import Thread
 
 import httpx
-from test_database_health import runtime_database as runtime_database
-from test_onboarding import Access, confirmation
-from test_storage import prepared_db as prepared_db
 
 from github_intelligence.dashboard import DashboardApp, make_server
 from github_intelligence.dashboard_data import DashboardStore
 from github_intelligence.onboarding import RepositoryOnboarding
 from github_intelligence.repositories import RepositoryRegistry
 from github_intelligence.storage import ProjectScope
+from tests.helpers import Access, confirmation
+from tests.integration.test_database_health import runtime_database as runtime_database
+from tests.integration.test_storage import prepared_db as prepared_db
 
 
 def test_confirm_creates_scoped_binding_but_never_starts_a_collection(runtime_database, tmp_path):
@@ -48,7 +48,7 @@ def test_confirm_creates_scoped_binding_but_never_starts_a_collection(runtime_da
             blocked = client.post("/api/repositories/bind", headers=headers, json=bind_payload)
             assert blocked.status_code == 503
             assert registry.entries() == []
-            migration = Path(__file__).resolve().parents[1] / "migrations/0003_repository_onboarding.sql"
+            migration = Path(__file__).resolve().parents[2] / "migrations/0003_repository_onboarding.sql"
             db.execute(migration.read_text(encoding="utf-8"), prepare=False)
             bound = client.post("/api/repositories/bind", headers=headers, json=bind_payload)
             assert bound.status_code == 200, bound.text

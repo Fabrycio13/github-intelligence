@@ -1,11 +1,11 @@
 """Security-definer lock helper under the actual restricted PostgreSQL login."""
 import psycopg
 import pytest
-from test_repository_binding import apply_draft, binding_rows, factory
-from test_repository_binding import binding_db as binding_db
 
 from github_intelligence.db_health import check_database
 from github_intelligence.storage import StorageError, project_transaction
+from tests.integration.test_repository_binding import apply_draft, binding_rows, factory
+from tests.integration.test_repository_binding import binding_db as binding_db
 
 FUNCTION = "github_intelligence.lock_repository_binding_scope(bigint,bigint)"
 

@@ -6,13 +6,13 @@ from uuid import UUID
 
 import httpx
 import psycopg
-from test_dashboard_data import _report, _run
-from test_storage import prepared_db as prepared_db
 
 from github_intelligence.dashboard import DashboardApp, make_server
 from github_intelligence.models import ReportWindow, RepositoryConfig, RepositorySnapshot
 from github_intelligence.persistence import persist_repository_snapshot
 from github_intelligence.storage import ProjectScope
+from tests.integration.test_dashboard_data import _report, _run
+from tests.integration.test_storage import prepared_db as prepared_db
 
 
 def test_http_update_persists_report_and_returns_it_through_the_dashboard(prepared_db):

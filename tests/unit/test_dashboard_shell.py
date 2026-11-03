@@ -1,7 +1,7 @@
 """Public HTML shell contract; browser interactions are smoke-tested separately."""
 from html.parser import HTMLParser
 
-from test_dashboard import running
+from tests.unit.test_dashboard import running
 
 
 class Shell(HTMLParser):

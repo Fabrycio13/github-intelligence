@@ -2,7 +2,7 @@ from pathlib import Path
 
 
 def test_initial_migration_is_transactional_and_never_alters_managed_schema():
-    path = Path(__file__).resolve().parents[1] / "migrations" / "0001_initial.sql"
+    path = Path(__file__).resolve().parents[2] / "migrations" / "0001_initial.sql"
     sql = path.read_text(encoding="utf-8")
     statements = sql.lower()
     assert statements.lstrip().startswith("--")

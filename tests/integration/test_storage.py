@@ -7,7 +7,7 @@ import psycopg
 import pytest
 
 SCHEMA = "github_intelligence"
-MIGRATION = Path(__file__).resolve().parents[1] / "migrations" / "0001_initial.sql"
+MIGRATION = Path(__file__).resolve().parents[2] / "migrations" / "0001_initial.sql"
 TABLES = {
     "clients",
     "projects",

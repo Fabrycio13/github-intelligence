@@ -4,11 +4,11 @@ from unittest.mock import Mock
 
 import psycopg
 import pytest
-from test_database import environment
 
 from github_intelligence import database
 from github_intelligence.config import ConfigurationError
 from github_intelligence.storage import StorageError
+from tests.unit.test_database import environment
 
 
 def test_auth_failure_is_actionable_without_exposing_driver_text(monkeypatch):
