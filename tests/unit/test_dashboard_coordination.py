@@ -13,7 +13,7 @@ from github_intelligence.dashboard_coordination import (
 )
 from github_intelligence.onboarding import OnboardingError
 from tests.helpers import confirmation, service
-from tests.unit.test_dashboard import REPO, running
+from tests.unit.test_dashboard import REPO, REPORT, running
 
 VALID_SINCE = "2026-10-01T00:00:00Z"
 VALID_UNTIL = "2026-10-19T00:00:00Z"
@@ -329,3 +329,26 @@ def test_concurrency_lock_released_on_bind_failure(tmp_path):
         })
         assert update_res.status_code == 200
         assert len(writes) == 1
+
+
+def test_dashboard_app_preserves_public_signature_lock_sharing_and_error_import():
+    import inspect
+
+    from github_intelligence.dashboard import DashboardApp
+    from github_intelligence.dashboard import DashboardError as LegacyDashboardError
+    from github_intelligence.dashboard_coordination import DashboardError as NewDashboardError
+    from github_intelligence.storage import ProjectScope
+
+    assert LegacyDashboardError is NewDashboardError
+
+    sig = inspect.signature(DashboardApp.__init__)
+    params = list(sig.parameters.keys())
+    assert params == ["self", "store", "scope", "refresh", "onboarding"]
+    assert sig.parameters["refresh"].kind == inspect.Parameter.KEYWORD_ONLY
+    assert sig.parameters["onboarding"].default is None
+
+    scope = ProjectScope(client_id=REPO, project_id=REPORT)
+    app = DashboardApp(FakeStore(), scope, refresh=lambda *args: None)
+    assert app.lock is app.coordinator.lock
+    assert hasattr(app.lock, "locked")
+    assert not app.lock.locked()

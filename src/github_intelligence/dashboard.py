@@ -41,14 +41,13 @@ class DashboardApp:
         self, store: Store, scope: ProjectScope, *,
         refresh: Callable[[str, ReportWindow], None],
         onboarding: RepositoryOnboarding | None = None,
-        coordinator: DashboardCoordinator | None = None,
     ) -> None:
         self.store = store
         self.scope = scope
         self.refresh = refresh
         self.onboarding = onboarding
         self.token = secrets.token_urlsafe(32)
-        self.coordinator = coordinator or DashboardCoordinator()
+        self.coordinator = DashboardCoordinator()
         self.lock = self.coordinator.lock
 
     def update(self, payload: object) -> None:
