@@ -40,3 +40,9 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: list the map's open children, drop any with an open blocker or an assignee; first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer to the map's Decisions-so-far.
+
+## Acceptance criteria for testing issues
+
+When defining criteria for implementation or regression-testing issues:
+- Require the full relevant test suite to pass with zero failures and no regressions across existing tests.
+- Avoid rigid absolute test counts (e.g. "exactly 789 tests"), as legitimate test additions in preceding tasks make fixed counts obsolete. Formulate criteria based on complete suite passage or non-decreasing baseline thresholds.
