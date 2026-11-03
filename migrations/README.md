@@ -1,6 +1,6 @@
 # Migration inicial — aplicada manualmente e catálogo conferido
 
-`0001_initial.sql` foi aplicada manualmente pelo usuário ao projeto Supabase `cpkgvpuivjzplerzlpxz` em 19/10/2026. O agente confirmou a estrutura e as proteções no catálogo remoto, somente por consultas de leitura. **Não reaplicar nem editar esta migration: mudanças futuras exigem arquivo incremental.** Registro e limites em `docs/supabase-migration-0001-applied-2026-10-19.md` (caminho relativo à raiz do projeto).
+`0001_initial.sql` foi aplicada manualmente pelo usuário ao projeto Supabase `cpkgvpuivjzplerzlpxz` em 19/10/2026. O agente confirmou a estrutura e as proteções no catálogo remoto, somente por consultas de leitura. **Não reaplicar nem editar esta migration: mudanças futuras exigem arquivo incremental.** Registro e limites em `docs/archive/supabase-migration-0001-applied-2026-10-19.md` (caminho relativo à raiz do projeto).
 
 O cabeçalho de `0001_initial.sql` ainda diz “REVIEW DRAFT”; é um rótulo histórico desatualizado e o arquivo permanece intocado por ser aplicado. Para o status remoto, use o registro acima e o catálogo conferido. O usuário informou a aplicação de `0002_runtime_login.sql`; o papel worker e a conexão restrita foram conferidos posteriormente. Não reaplicar `0001` ou `0002` para habilitar funcionalidades novas.
 
