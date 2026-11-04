@@ -51,7 +51,6 @@ def pg_cluster_dsn() -> Iterator[str]:
     logfile = root / "postgres.log"
     ctl_log = root / "pg_ctl.log"
     env = {key: value for key, value in os.environ.items() if not key.upper().startswith("PG")}
-    server_pid: int | None = None
     pid_file = data / "postmaster.pid"
     try:
         with ctl_log.open("wb") as clog:
@@ -82,11 +81,6 @@ def pg_cluster_dsn() -> Iterator[str]:
                  "-w", "-t", "30"],
                 stdout=clog, stderr=subprocess.STDOUT, env=env, timeout=35, check=True,
             )
-        if pid_file.is_file():
-            try:
-                server_pid = int(pid_file.read_text(encoding="ascii").splitlines()[0].strip())
-            except (ValueError, IndexError):
-                server_pid = None
 
         deadline = time.monotonic() + 30
         while True:
@@ -120,42 +114,55 @@ def pg_cluster_dsn() -> Iterator[str]:
         tail = "\n".join(diagnostics)
         pytest.fail(f"Local PostgreSQL harness failed: {exc}\n{tail}")
     finally:
-        try:
+        stop_failed = False
+        stop_error: Exception | None = None
+        if pid_file.is_file():
             with ctl_log.open("ab") as clog:
-                # 1. Standard controlled shutdown via pg_ctl stop
-                subprocess.run(
-                    [str(binaries / "pg_ctl.exe"), "stop", "-D", str(data),
-                     "-m", "immediate", "-w", "-t", "15"],
-                    stdout=clog, stderr=subprocess.STDOUT, env=env, timeout=20, check=False,
-                )
-                # 2. Only if postmaster.pid persists, verify PID and data directory ownership before taskkill
-                if pid_file.is_file() and server_pid is not None:
-                    try:
-                        lines = pid_file.read_text(encoding="ascii").splitlines()
-                        live_pid = int(lines[0].strip()) if lines else None
-                        live_data = Path(lines[1].strip()).resolve() if len(lines) > 1 else None
-                    except (OSError, ValueError):
-                        live_pid = None
-                        live_data = None
-                    if live_pid == server_pid and live_data == data.resolve():
-                        subprocess.run(
-                            ["taskkill.exe", "/PID", str(server_pid), "/T", "/F"],
-                            stdout=clog, stderr=subprocess.STDOUT, timeout=15, check=False,
-                        )
-        finally:
-            last_err: OSError | None = None
-            for _ in range(5):
                 try:
-                    shutil.rmtree(root)
-                    last_err = None
-                    break
-                except OSError as err:
-                    last_err = err
-                    time.sleep(0.2)
-            if last_err is not None:
-                raise RuntimeError(
-                    f"Failed to remove disposable PostgreSQL directory {root}: {last_err}"
+                    res = subprocess.run(
+                        [str(binaries / "pg_ctl.exe"), "stop", "-D", str(data),
+                         "-m", "immediate", "-w", "-t", "15"],
+                        stdout=clog, stderr=subprocess.STDOUT, env=env, timeout=20, check=False,
+                    )
+                    if res.returncode != 0 or pid_file.is_file():
+                        stop_failed = True
+                except (OSError, subprocess.SubprocessError) as err:
+                    stop_failed = True
+                    stop_error = err
+
+        if stop_failed:
+            status_res = subprocess.run(
+                [str(binaries / "pg_ctl.exe"), "status", "-D", str(data)],
+                capture_output=True, text=True, env=env, timeout=10,
+            )
+            diag = [f"Stop error: {stop_error}"] if stop_error else []
+            diag.append(f"pg_ctl status: {status_res.stdout.strip()} (code {status_res.returncode})")
+            if logfile.is_file():
+                diag.append(
+                    f"--- postgres.log ---\n{logfile.read_text(encoding='utf-8', errors='replace')[-2000:]}"
                 )
+            if ctl_log.is_file():
+                diag.append(
+                    f"--- pg_ctl.log ---\n{ctl_log.read_text(encoding='utf-8', errors='replace')[-2000:]}"
+                )
+            raise RuntimeError(
+                f"PostgreSQL shutdown failed; retaining cluster directory at {root} for safety:\n"
+                + "\n".join(diag)
+            )
+
+        last_err: OSError | None = None
+        for _ in range(5):
+            try:
+                shutil.rmtree(root)
+                last_err = None
+                break
+            except OSError as err:
+                last_err = err
+                time.sleep(0.2)
+        if last_err is not None:
+            raise RuntimeError(
+                f"Failed to remove disposable PostgreSQL directory {root}: {last_err}"
+            )
 
 
 @pytest.fixture

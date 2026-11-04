@@ -53,8 +53,6 @@ jobs:
   integration-tests:
     name: Native PostgreSQL Integration Tests
     runs-on: windows-latest
-    env:
-      GHI_PG_BIN: ${{ runner.temp }}/pgsql-17.11-5/pgsql/bin
 
     steps:
       - name: Check out repository
@@ -83,4 +81,6 @@ jobs:
         run: uv run python scripts/db/prepare_test_postgres.py --cache "${{ runner.temp }}/pgsql-17.11-5"
 
       - name: Run Python integration tests
+        env:
+          GHI_PG_BIN: ${{ runner.temp }}/pgsql-17.11-5/pgsql/bin
         run: uv run pytest tests/integration
