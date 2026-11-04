@@ -49,75 +49,105 @@ def pg_cluster_dsn() -> Iterator[str]:
     root = Path(tempfile.mkdtemp(prefix="ghi-pg-cluster-", dir=_SCRATCH))
     data = root / "data"
     logfile = root / "postgres.log"
+    ctl_log = root / "pg_ctl.log"
     env = {key: value for key, value in os.environ.items() if not key.upper().startswith("PG")}
-    process = None
-    with logfile.open("wb") as log:
-        try:
+    server_pid: int | None = None
+    pid_file = data / "postmaster.pid"
+    try:
+        with ctl_log.open("wb") as clog:
             subprocess.run(
                 [str(binaries / "initdb.exe"), "-D", str(data), "-U", "postgres",
                  "--locale=C", "--encoding=UTF8", "--auth=trust", "--no-instructions"],
-                check=True, stdout=log, stderr=subprocess.STDOUT, env=env, timeout=60,
+                check=True, stdout=clog, stderr=subprocess.STDOUT, env=env, timeout=60,
             )
-            # Even though listening is IPv4 only, restrict HBA to that interface.
-            (data / "pg_hba.conf").write_text(
-                "host all all 127.0.0.1/32 trust\n", encoding="ascii",
+        # Even though listening is IPv4 only, restrict HBA to that interface.
+        (data / "pg_hba.conf").write_text(
+            "host all all 127.0.0.1/32 trust\n", encoding="ascii",
+        )
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        dsn = make_conninfo(
+            host="127.0.0.1", hostaddr="127.0.0.1", port=port, user="postgres",
+            dbname="postgres", password="", sslmode="disable", gssencmode="disable",
+            options="", connect_timeout=1,
+        )
+        opts = f"-h 127.0.0.1 -p {port} -c unix_socket_directories= -c logging_collector=off"
+        with ctl_log.open("ab") as clog:
+            subprocess.run(
+                [str(binaries / "pg_ctl.exe"), "start",
+                 "-D", str(data),
+                 "-l", str(logfile),
+                 "-o", opts,
+                 "-w", "-t", "30"],
+                stdout=clog, stderr=subprocess.STDOUT, env=env, timeout=35, check=True,
             )
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.bind(("127.0.0.1", 0))
-                port = sock.getsockname()[1]
-            dsn = make_conninfo(
-                host="127.0.0.1", hostaddr="127.0.0.1", port=port, user="postgres",
-                dbname="postgres", password="", sslmode="disable", gssencmode="disable",
-                options="", connect_timeout=1,
-            )
-            process = subprocess.Popen(
-                [str(binaries / "postgres.exe"), "-D", str(data), "-h", "127.0.0.1",
-                 "-p", str(port), "-c", "unix_socket_directories=", "-c", "logging_collector=off"],
-                stdout=log, stderr=subprocess.STDOUT, env=env,
-            )
-            deadline = time.monotonic() + 30
-            while True:
-                if process.poll() is not None:
-                    raise RuntimeError(f"PostgreSQL exited with {process.returncode}")
-                try:
-                    with psycopg.connect(dsn, autocommit=True) as admin:
-                        for name in ("anon", "authenticated", "service_role"):
-                            exists = admin.execute(
-                                "SELECT 1 FROM pg_roles WHERE rolname=%s", (name,),
-                            ).fetchone()
-                            if not exists:
-                                admin.execute(sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(name)))
-                        admin.execute("ALTER ROLE service_role BYPASSRLS")
-                    break
-                except psycopg.OperationalError:
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError("PostgreSQL did not become ready within 30 seconds") from None
-                    time.sleep(0.1)
-            yield dsn
-        except (OSError, subprocess.SubprocessError, RuntimeError, TimeoutError) as exc:
-            log.flush()
-            tail = logfile.read_text(encoding="utf-8", errors="replace")[-6000:]
-            pytest.fail(f"Local PostgreSQL harness failed: {exc}\n{tail}")
-        finally:
+        if pid_file.is_file():
             try:
-                if process is not None and process.poll() is None:
-                    try:
+                server_pid = int(pid_file.read_text(encoding="ascii").splitlines()[0].strip())
+            except (ValueError, IndexError):
+                server_pid = None
+
+        deadline = time.monotonic() + 30
+        while True:
+            if not pid_file.is_file():
+                raise RuntimeError("PostgreSQL postmaster exited unexpectedly (postmaster.pid missing)")
+            try:
+                with psycopg.connect(dsn, autocommit=True) as admin:
+                    for name in ("anon", "authenticated", "service_role"):
+                        exists = admin.execute(
+                            "SELECT 1 FROM pg_roles WHERE rolname=%s", (name,),
+                        ).fetchone()
+                        if not exists:
+                            admin.execute(sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(name)))
+                    admin.execute("ALTER ROLE service_role BYPASSRLS")
+                break
+            except psycopg.OperationalError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("PostgreSQL did not become ready within 30 seconds") from None
+                time.sleep(0.1)
+        yield dsn
+    except (OSError, subprocess.SubprocessError, RuntimeError, TimeoutError) as exc:
+        diagnostics: list[str] = []
+        if logfile.is_file():
+            diagnostics.append(
+                f"--- postgres.log ---\n{logfile.read_text(encoding='utf-8', errors='replace')[-4000:]}"
+            )
+        if ctl_log.is_file():
+            diagnostics.append(
+                f"--- pg_ctl.log ---\n{ctl_log.read_text(encoding='utf-8', errors='replace')[-2000:]}"
+            )
+        tail = "\n".join(diagnostics)
+        pytest.fail(f"Local PostgreSQL harness failed: {exc}\n{tail}")
+    finally:
+        try:
+            if server_pid is None and pid_file.is_file():
+                try:
+                    server_pid = int(pid_file.read_text(encoding="ascii").splitlines()[0].strip())
+                except (ValueError, IndexError):
+                    server_pid = None
+            if pid_file.is_file() or server_pid is not None:
+                with ctl_log.open("ab") as clog:
+                    subprocess.run(
+                        [str(binaries / "pg_ctl.exe"), "stop", "-D", str(data),
+                         "-m", "immediate", "-w", "-t", "15"],
+                        stdout=clog, stderr=subprocess.STDOUT, env=env, timeout=20, check=False,
+                    )
+                    if pid_file.is_file() and server_pid is not None:
+                        # Restrict forced cleanup strictly to the exact PID spawned for this cluster.
                         subprocess.run(
-                            [str(binaries / "pg_ctl.exe"), "stop", "-D", str(data),
-                             "-m", "immediate", "-w", "-t", "15"],
-                            stdout=log, stderr=subprocess.STDOUT, env=env, timeout=20, check=True,
+                            ["taskkill.exe", "/PID", str(server_pid), "/T", "/F"],
+                            stdout=clog, stderr=subprocess.STDOUT, timeout=15, check=False,
                         )
-                    finally:
-                        if process.poll() is None:
-                            # Restrict forced cleanup to the exact process tree we spawned.
-                            subprocess.run(
-                                ["taskkill.exe", "/PID", str(process.pid), "/T", "/F"],
-                                stdout=log, stderr=subprocess.STDOUT, timeout=15, check=False,
-                            )
-                        process.wait(timeout=15)
-            finally:
-                log.close()
-                shutil.rmtree(root)
+        finally:
+            for _ in range(5):
+                try:
+                    shutil.rmtree(root)
+                    break
+                except OSError:
+                    time.sleep(0.2)
+            else:
+                shutil.rmtree(root, ignore_errors=True)
 
 
 @pytest.fixture
@@ -131,3 +161,31 @@ def pg_admin(pg_cluster_dsn: str) -> Iterator[psycopg.Connection]:
                 yield connection
         finally:
             cluster.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Fail CI if any integration test is skipped or if zero integration tests run when GHI_PG_BIN is set."""
+    if os.environ.get("GHI_PG_BIN"):
+        reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+        if reporter:
+            skips = [
+                r for r in reporter.getreports("skipped")
+                if "tests/integration" in str(getattr(r, "fspath", "")).replace("\\", "/")
+            ]
+            if skips:
+                reporter.write_sep(
+                    "=", "FAILED: SKIPPED INTEGRATION TESTS NOT PERMITTED", red=True, bold=True,
+                )
+                for r in skips:
+                    reporter.write_line(f"Skipped: {r.nodeid} - {r.longrepr}")
+                session.exitstatus = 1
+            passed = [
+                r for r in reporter.getreports("passed")
+                if "tests/integration" in str(getattr(r, "fspath", "")).replace("\\", "/")
+            ]
+            targeted_integration = any(
+                "tests/integration" in str(arg).replace("\\", "/") for arg in session.config.args
+            )
+            if targeted_integration and not passed:
+                reporter.write_sep("=", "FAILED: NO INTEGRATION TESTS PASSED", red=True, bold=True)
+                session.exitstatus = 1
