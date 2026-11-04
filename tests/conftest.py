@@ -121,33 +121,41 @@ def pg_cluster_dsn() -> Iterator[str]:
         pytest.fail(f"Local PostgreSQL harness failed: {exc}\n{tail}")
     finally:
         try:
-            if server_pid is None and pid_file.is_file():
-                try:
-                    server_pid = int(pid_file.read_text(encoding="ascii").splitlines()[0].strip())
-                except (ValueError, IndexError):
-                    server_pid = None
-            if pid_file.is_file() or server_pid is not None:
-                with ctl_log.open("ab") as clog:
-                    subprocess.run(
-                        [str(binaries / "pg_ctl.exe"), "stop", "-D", str(data),
-                         "-m", "immediate", "-w", "-t", "15"],
-                        stdout=clog, stderr=subprocess.STDOUT, env=env, timeout=20, check=False,
-                    )
-                    if pid_file.is_file() and server_pid is not None:
-                        # Restrict forced cleanup strictly to the exact PID spawned for this cluster.
+            with ctl_log.open("ab") as clog:
+                # 1. Standard controlled shutdown via pg_ctl stop
+                subprocess.run(
+                    [str(binaries / "pg_ctl.exe"), "stop", "-D", str(data),
+                     "-m", "immediate", "-w", "-t", "15"],
+                    stdout=clog, stderr=subprocess.STDOUT, env=env, timeout=20, check=False,
+                )
+                # 2. Only if postmaster.pid persists, verify PID and data directory ownership before taskkill
+                if pid_file.is_file() and server_pid is not None:
+                    try:
+                        lines = pid_file.read_text(encoding="ascii").splitlines()
+                        live_pid = int(lines[0].strip()) if lines else None
+                        live_data = Path(lines[1].strip()).resolve() if len(lines) > 1 else None
+                    except (OSError, ValueError):
+                        live_pid = None
+                        live_data = None
+                    if live_pid == server_pid and live_data == data.resolve():
                         subprocess.run(
                             ["taskkill.exe", "/PID", str(server_pid), "/T", "/F"],
                             stdout=clog, stderr=subprocess.STDOUT, timeout=15, check=False,
                         )
         finally:
+            last_err: OSError | None = None
             for _ in range(5):
                 try:
                     shutil.rmtree(root)
+                    last_err = None
                     break
-                except OSError:
+                except OSError as err:
+                    last_err = err
                     time.sleep(0.2)
-            else:
-                shutil.rmtree(root, ignore_errors=True)
+            if last_err is not None:
+                raise RuntimeError(
+                    f"Failed to remove disposable PostgreSQL directory {root}: {last_err}"
+                )
 
 
 @pytest.fixture
