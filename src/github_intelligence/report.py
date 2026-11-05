@@ -210,3 +210,270 @@ def render_report(snapshots: list[RepositorySnapshot], window: ReportWindow) -> 
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+
+def _record_participant(
+    participants_map: dict[str, dict[str, Any]],
+    login: str,
+    role: str,
+    pr_number: int,
+) -> None:
+    cleaned = login.strip()
+    if not cleaned:
+        return
+    key = cleaned.casefold()
+    if key not in participants_map:
+        participants_map[key] = {
+            "login": cleaned,
+            "roles": set(),
+            "pr_numbers": set(),
+        }
+    participants_map[key]["roles"].add(role)
+    participants_map[key]["pr_numbers"].add(pr_number)
+
+
+def render_executive_markdown(summary: dict[str, Any]) -> str:
+    window = summary.get("window", {})
+    since = window.get("since", "—")
+    until = window.get("until", "—")
+    lines = [
+        "# Relatório Executivo Semanal",
+        "",
+        f"**Janela UTC:** `[{since}, {until})`",
+        "",
+    ]
+    if not summary.get("report_complete", True):
+        lines.extend([
+            "> **Aviso:** Relatório parcial — fontes indisponíveis ou snapshots inconsistentes no período.",
+            "",
+        ])
+
+    merged = summary.get("merged_in_window", [])
+    lines.append(f"## 1. Integradas no período ({len(merged)})")
+    if not merged:
+        lines.append("_Nenhuma PR integrada observada dentro desta janela temporal._")
+    else:
+        for pr in merged:
+            lines.append(
+                f"- [#{pr['number']} {pr['title']}]({pr['url']}) "
+                f"(autor: @{pr['author']}, merge por: @{pr['merged_by']} em {pr['merged_at']})"
+            )
+    lines.append("")
+
+    awaiting = summary.get("open_awaiting_review", [])
+    lines.append(f"## 2. Aguardando revisão ({len(awaiting)})")
+    if not awaiting:
+        lines.append("_Nenhuma PR aberta aguardando aprovações._")
+    else:
+        for pr in awaiting:
+            draft_label = " [Rascunho]" if pr.get("is_draft") else ""
+            lines.append(
+                f"- [#{pr['number']} {pr['title']}]({pr['url']}){draft_label} "
+                f"(autor: @{pr['author']} · aprovações observadas: "
+                f"{pr['approvals_observed']}/{pr['expected_approvals']})"
+            )
+    lines.append("")
+
+    blockers = summary.get("potential_blockers", [])
+    lines.append(f"## 3. Possíveis bloqueios técnicos ({len(blockers)})")
+    if not blockers:
+        lines.append("_Nenhum bloqueio técnico crítico observado nas PRs ativas._")
+    else:
+        for pr in blockers:
+            reasons = "; ".join(pr.get("reasons", [])) or "Pendência observada."
+            lines.append(
+                f"- [#{pr['number']} {pr['title']}]({pr['url']}) (autor: @{pr['author']}): {reasons}"
+            )
+    lines.append("")
+
+    participants = summary.get("participants", [])
+    lines.append(f"## 4. Participantes observados nas PRs coletadas ({len(participants)})")
+    if not participants:
+        lines.append("_Nenhum participante observado nas PRs coletadas._")
+    else:
+        for p in participants:
+            roles = ", ".join(p.get("roles", []))
+            prs = ", ".join(f"#{num}" for num in p.get("pr_numbers", []))
+            lines.append(f"- **@{p['login']}**: {roles} (PRs: {prs})")
+    lines.append("")
+
+    lines.append("## 5. Limitações e Fronteiras dos Dados")
+    for lim in summary.get("limitations", []):
+        lines.append(f"- {lim}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def build_executive_summary(
+    snapshots: list[PullRequestSnapshot],
+    window: ReportWindow,
+    *,
+    repository_configs: dict[str, Any] | None = None,
+    report_complete: bool = True,
+) -> dict[str, Any]:
+    from .models import RepositoryConfig
+
+    configs = repository_configs or {}
+    assessments: list[tuple[PullRequestSnapshot, Assessment, RepositoryConfig]] = []
+    for snap in snapshots:
+        raw_cfg = configs.get(snap.repository)
+        cfg = (
+            raw_cfg
+            if isinstance(raw_cfg, RepositoryConfig)
+            else RepositoryConfig(full_name=snap.repository)
+        )
+        assessments.append((snap, evaluate(snap, cfg), cfg))
+
+    merged_in_window: list[dict[str, Any]] = []
+    open_awaiting_review: list[dict[str, Any]] = []
+    potential_blockers: list[dict[str, Any]] = []
+    participants_map: dict[str, dict[str, Any]] = {}
+
+    for snap, assessment, cfg in assessments:
+        pull = snap.pull
+        merged_at = pull.get("merged_at")
+        is_merged = bool(pull.get("merged") or merged_at)
+
+        # 1. Merged in window: only if merged_at is within [since, until)
+        if is_merged and merged_at and window.contains(merged_at):
+            merged_in_window.append({
+                "number": assessment.number,
+                "title": assessment.title,
+                "url": assessment.url,
+                "repository": snap.repository,
+                "merged_at": merged_at,
+                "author": (pull.get("user") or {}).get("login") or "desconhecido",
+                "merged_by": (pull.get("merged_by") or {}).get("login") or "desconhecido",
+                "base_branch": (pull.get("base") or {}).get("ref") or "desconhecido",
+            })
+
+        # 2. Open awaiting review: open or draft PRs requiring reviews
+        if assessment.lifecycle in {"open", "draft"}:
+            if assessment.review in {"no_approvals", "awaiting_approvals"}:
+                open_awaiting_review.append({
+                    "number": assessment.number,
+                    "title": assessment.title,
+                    "url": assessment.url,
+                    "repository": snap.repository,
+                    "created_at": pull.get("created_at"),
+                    "author": (pull.get("user") or {}).get("login") or "desconhecido",
+                    "is_draft": bool(pull.get("draft")),
+                    "approvals_observed": assessment.approvals_observed,
+                    "expected_approvals": cfg.required_approvals,
+                    "review_state": assessment.review,
+                })
+
+        # 3. Potential blockers: active open/draft PRs with failing CI, conflicts or changes requested
+        if assessment.lifecycle in {"open", "draft"}:
+            has_ci_failure = assessment.ci == "failing"
+            has_conflict = (
+                pull.get("mergeable") is False
+                or pull.get("mergeable_state") in {"blocked", "dirty"}
+            )
+            has_changes_requested = assessment.review == "changes_requested"
+            if has_ci_failure or has_conflict or has_changes_requested:
+                reasons: list[str] = []
+                if has_ci_failure:
+                    reasons.append("Checks ou status de CI falhando no head SHA.")
+                if pull.get("mergeable") is False:
+                    reasons.append("Conflitos de mesclagem identificados (mergeable: false).")
+                elif pull.get("mergeable_state") in {"blocked", "dirty"}:
+                    reasons.append(f"Estado de mesclagem bloqueado observado: {pull.get('mergeable_state')}.")
+                if has_changes_requested:
+                    reasons.append("Revisão com alterações solicitadas (CHANGES_REQUESTED).")
+                potential_blockers.append({
+                    "number": assessment.number,
+                    "title": assessment.title,
+                    "url": assessment.url,
+                    "repository": snap.repository,
+                    "author": (pull.get("user") or {}).get("login") or "desconhecido",
+                    "ci_state": assessment.ci,
+                    "mergeable_state": (
+                        pull.get("mergeable_state")
+                        or ("conflicting" if pull.get("mergeable") is False else "unknown")
+                    ),
+                    "review_state": assessment.review,
+                    "reasons": reasons,
+                })
+
+        # 4. Participants from real evidence
+        author = (pull.get("user") or {}).get("login")
+        if author:
+            _record_participant(participants_map, author, "author", assessment.number)
+        merged_by = (pull.get("merged_by") or {}).get("login")
+        if merged_by and is_merged:
+            _record_participant(participants_map, merged_by, "merged_by", assessment.number)
+        for review in snap.reviews:
+            rev_user = (review.get("user") or {}).get("login")
+            if rev_user:
+                _record_participant(participants_map, rev_user, "reviewer", assessment.number)
+        for commit in snap.commits:
+            c_auth = (commit.get("author") or {}).get("login")
+            c_comm = (commit.get("committer") or {}).get("login")
+            for login in (c_auth, c_comm):
+                if login:
+                    _record_participant(participants_map, login, "committer", assessment.number)
+
+    merged_in_window.sort(key=lambda item: (str(item.get("merged_at", "")), item["number"]), reverse=True)
+    open_awaiting_review.sort(key=lambda item: item["number"], reverse=True)
+    potential_blockers.sort(key=lambda item: item["number"], reverse=True)
+
+    participants = [
+        {
+            "login": item["login"],
+            "roles": sorted(item["roles"]),
+            "pr_numbers": sorted(item["pr_numbers"]),
+        }
+        for item in sorted(participants_map.values(), key=lambda p: p["login"].casefold())
+    ]
+
+    limitations = [
+        (
+            "Merges na branch base indicam integração no repositório, "
+            "mas não comprovam deploy em produção nem validação funcional."
+        ),
+        (
+            "Aprovações observadas refletem a expectativa de revisão "
+            "configurada localmente, não regras comprovadas do GitHub."
+        ),
+        (
+            "Contagens de PRs e participações não constituem métricas "
+            "de produtividade individual nem dedicação do colaborador."
+        ),
+        (
+            "Amostra restrita às PRs observadas; participantes identificados "
+            "refletem pessoas observadas nas PRs coletadas, sem comprovação "
+            "de atividade no período temporal nem ausência total de atividade no GitHub."
+        ),
+    ]
+    has_partial = not report_complete or any(
+        not s.consistent or bool(s.limitations) for s in snapshots
+    )
+    if has_partial:
+        limitations.insert(
+            0,
+            "Relatório parcial: há fontes indisponíveis ou snapshots inconsistentes no período.",
+        )
+
+    result: dict[str, Any] = {
+        "available": True,
+        "report_complete": not has_partial,
+        "window": {
+            "since": _utc(window.since),
+            "until": _utc(window.until),
+        },
+        "summary": {
+            "total_prs_observed": len(snapshots),
+            "merged_in_window_count": len(merged_in_window),
+            "open_awaiting_review_count": len(open_awaiting_review),
+            "potential_blockers_count": len(potential_blockers),
+        },
+        "merged_in_window": merged_in_window,
+        "open_awaiting_review": open_awaiting_review,
+        "potential_blockers": potential_blockers,
+        "participants": participants,
+        "limitations": limitations,
+    }
+    result["markdown_text"] = render_executive_markdown(result)
+    return result

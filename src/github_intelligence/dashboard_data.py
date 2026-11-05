@@ -205,7 +205,112 @@ class DashboardStore:
                         WHERE summary.id=%s""",
                     (self._scope.client_id, self._scope.project_id, report_id),
                 ).fetchone()
-                return None if row is None else row["detail"]
+                if row is None:
+                    return None
+                return row["detail"]
+
+    def get_report_executive(self, report_id: UUID) -> dict[str, Any]:
+        with self._connection_factory() as connection, project_transaction(connection, self._scope):
+            connection.execute("SET LOCAL TIME ZONE 'UTC'")
+            with connection.cursor(row_factory=dict_row) as cursor:
+                report_row = cursor.execute(
+                    "SELECT report.window_start, report.window_end, report.complete"
+                    " FROM github_intelligence.reports report"
+                    " JOIN github_intelligence.projects p"
+                    "   ON (p.client_id, p.id) = (report.client_id, report.project_id)"
+                    " JOIN github_intelligence.clients c ON c.id = report.client_id"
+                    " WHERE report.id = %s AND report.client_id = %s AND report.project_id = %s"
+                    "   AND c.status = 'active' AND p.status = 'active'",
+                    (report_id, self._scope.client_id, self._scope.project_id),
+                ).fetchone()
+                if report_row is None:
+                    return {
+                        "available": False,
+                        "reason": "Relatório não encontrado neste escopo de projeto.",
+                    }
+
+                source_rows = cursor.execute(
+                    "SELECT rs.sync_run_id, rs.snapshot_id, sr.status AS sync_status,"
+                    " r.full_name AS repository_full_name, r.expected_approvals, r.staging_branch"
+                    " FROM github_intelligence.report_sources rs"
+                    " JOIN github_intelligence.sync_runs sr"
+                    "   ON (sr.client_id, sr.project_id, sr.id) "
+                    "    = (rs.client_id, rs.project_id, rs.sync_run_id)"
+                    " JOIN github_intelligence.repositories r"
+                    "   ON (r.client_id, r.project_id, r.id) "
+                    "    = (sr.client_id, sr.project_id, sr.repository_id)"
+                    " WHERE rs.client_id = %s AND rs.project_id = %s AND rs.report_id = %s",
+                    (self._scope.client_id, self._scope.project_id, report_id),
+                ).fetchall()
+
+                # Caso B: Relatório legado sem dados estruturados associados
+                if not source_rows:
+                    return {
+                        "available": False,
+                        "reason": (
+                            "Visão executiva indisponível: este relatório não "
+                            "possui dados estruturados associados."
+                        ),
+                    }
+
+                from pydantic import ValidationError
+
+                from github_intelligence.models import ReportWindow, RepositoryConfig
+                from github_intelligence.persistence_payload import restore_snapshot
+                from github_intelligence.report import build_executive_summary
+
+                configs: dict[str, RepositoryConfig] = {}
+                is_partial = not bool(report_row["complete"])
+                for s_row in source_rows:
+                    repo_name = s_row["repository_full_name"]
+                    if repo_name not in configs:
+                        configs[repo_name] = RepositoryConfig(
+                            full_name=repo_name,
+                            required_approvals=s_row.get("expected_approvals") or 2,
+                            staging_branch=s_row.get("staging_branch"),
+                        )
+                    if s_row["sync_status"] in {"partial", "failed"}:
+                        is_partial = True
+
+                snapshot_rows = cursor.execute(
+                    "SELECT DISTINCT snap.id, snap.pr_number, snap.payload"
+                    " FROM github_intelligence.report_sources rs"
+                    " JOIN github_intelligence.sync_runs sr"
+                    "   ON (sr.client_id, sr.project_id, sr.id) "
+                    "     = (rs.client_id, rs.project_id, rs.sync_run_id)"
+                    " JOIN github_intelligence.pr_snapshots snap"
+                    "   ON (snap.client_id, snap.project_id, snap.sync_run_id) "
+                    "     = (sr.client_id, sr.project_id, sr.id)"
+                    "   AND (rs.snapshot_id IS NULL OR rs.snapshot_id = snap.id)"
+                    " WHERE rs.client_id = %s AND rs.project_id = %s AND rs.report_id = %s"
+                    " ORDER BY snap.pr_number ASC",
+                    (self._scope.client_id, self._scope.project_id, report_id),
+                ).fetchall()
+
+                snapshots = []
+                for row in snapshot_rows:
+                    payload = row["payload"]
+                    try:
+                        snap = restore_snapshot(payload)
+                    except (ValueError, TypeError, KeyError, ValidationError):
+                        # Caso C: Snapshot inválido ou incompatível com a versão atual
+                        return {
+                            "available": False,
+                            "reason": (
+                                "Visão executiva indisponível: snapshots estruturados "
+                                "inválidos ou incompatíveis com a versão atual."
+                            ),
+                        }
+                    snapshots.append(snap)
+
+                window = ReportWindow(since=report_row["window_start"], until=report_row["window_end"])
+                return build_executive_summary(
+                    snapshots,
+                    window,
+                    repository_configs=configs,
+                    report_complete=not is_partial,
+                )
+
 
     def get_report(self, report_id: UUID) -> dict[str, Any] | None:
         with self._connection_factory() as connection, project_transaction(connection, self._scope):

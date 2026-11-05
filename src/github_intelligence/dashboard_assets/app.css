@@ -1504,3 +1504,130 @@ footer {
     scroll-behavior: auto !important;
   }
 }
+
+/* Executive View & Tabs */
+.view-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 6px;
+}
+
+.view-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.view-tab:hover {
+  color: var(--text-main);
+}
+
+.view-tab.active {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+}
+
+.executive-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-main);
+  padding: 4px 0 16px 0;
+}
+
+.exec-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.exec-metric-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.exec-metric-val {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-main);
+  font-family: var(--font-mono);
+}
+
+.exec-metric-lbl {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.exec-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.exec-section-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-main);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.exec-item-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.exec-card-blocker {
+  border-left: 3px solid var(--accent-danger);
+}
+
+.exec-pr-link {
+  color: var(--accent-primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.exec-pr-link:hover {
+  text-decoration: underline;
+}
+
+.exec-pr-meta {
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+.exec-reasons-list, .exec-participants-list, .exec-limitations-list {
+  margin: 4px 0 0 16px;
+  padding: 0;
+  font-size: 0.8rem;
+}
+
+.executive-notice {
+  background: var(--bg-card-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  color: var(--text-muted);
+}

@@ -86,6 +86,179 @@
     return report.complete ? 'Completo dentro da cobertura declarada' : 'Relatório parcial';
   }
 
+  let currentDrawerExecutive = null;
+  let currentReportExecutive = null;
+
+  function addClass(node, cls) {
+    if (!node) return;
+    if (node.classList) {
+      node.classList.add(cls);
+    } else {
+      const classes = (node.className || '').split(/\s+/).filter(Boolean);
+      if (!classes.includes(cls)) classes.push(cls);
+      node.className = classes.join(' ');
+    }
+  }
+
+  function removeClass(node, cls) {
+    if (!node) return;
+    if (node.classList) {
+      node.classList.remove(cls);
+    } else {
+      const classes = (node.className || '').split(/\s+/).filter(c => c && c !== cls);
+      node.className = classes.join(' ');
+    }
+  }
+
+  function switchViewTab(prefix, tabName) {
+    const execTab = document.querySelector('#' + prefix + '-tab-exec');
+    const techTab = document.querySelector('#' + prefix + '-tab-tech');
+    const execView = document.querySelector('#' + prefix + '-executive');
+    const techView = document.querySelector(prefix === 'drawer' ? '#drawer-content' : '#report-content');
+    if (!execTab || !techTab || !execView || !techView) return;
+    if (tabName === 'exec') {
+      addClass(execTab, 'active');
+      execTab.setAttribute?.('aria-selected', 'true');
+      removeClass(techTab, 'active');
+      techTab.setAttribute?.('aria-selected', 'false');
+      execView.hidden = false;
+      techView.hidden = true;
+    } else {
+      addClass(techTab, 'active');
+      techTab.setAttribute?.('aria-selected', 'true');
+      removeClass(execTab, 'active');
+      execTab.setAttribute?.('aria-selected', 'false');
+      execView.hidden = true;
+      techView.hidden = false;
+    }
+  }
+
+  function renderExecutiveView(container, executive) {
+    if (!container) return;
+    container.replaceChildren();
+    if (!executive || !executive.available) {
+      const notice = el('div', undefined, 'executive-notice');
+      notice.append(
+        el('h4', 'Visão Executiva Indisponível'),
+        el('p', executive?.reason || 'Snapshots estruturados não disponíveis para este relatório histórico.')
+      );
+      container.append(notice);
+      return;
+    }
+
+    const grid = el('div', undefined, 'exec-metrics-grid');
+    const mMerged = el('div', undefined, 'exec-metric-card');
+    mMerged.append(
+      el('span', String(executive.summary.merged_in_window_count), 'exec-metric-val'),
+      el('span', 'Merges na janela', 'exec-metric-lbl')
+    );
+    const mAwaiting = el('div', undefined, 'exec-metric-card');
+    mAwaiting.append(
+      el('span', String(executive.summary.open_awaiting_review_count), 'exec-metric-val'),
+      el('span', 'Aguardando revisão', 'exec-metric-lbl')
+    );
+    const mBlockers = el('div', undefined, 'exec-metric-card');
+    mBlockers.append(
+      el('span', String(executive.summary.potential_blockers_count), 'exec-metric-val'),
+      el('span', 'Possíveis bloqueios', 'exec-metric-lbl')
+    );
+    const mTotal = el('div', undefined, 'exec-metric-card');
+    mTotal.append(
+      el('span', String(executive.summary.total_prs_observed), 'exec-metric-val'),
+      el('span', 'PRs observadas', 'exec-metric-lbl')
+    );
+    grid.append(mMerged, mAwaiting, mBlockers, mTotal);
+    container.append(grid);
+
+    const sec1 = el('div', undefined, 'exec-section');
+    sec1.append(el('h4', '1. Integradas no período (' + executive.merged_in_window.length + ')', 'exec-section-title'));
+    if (executive.merged_in_window.length === 0) {
+      sec1.append(el('p', 'Nenhuma PR integrada observada dentro desta janela temporal.', 'muted'));
+    } else {
+      for (const pr of executive.merged_in_window) {
+        const card = el('div', undefined, 'exec-item-card');
+        const linkNode = el('a', '#' + pr.number + ' ' + pr.title, 'exec-pr-link');
+        linkNode.href = pr.url;
+        linkNode.target = '_blank';
+        linkNode.rel = 'noopener noreferrer';
+        card.append(
+          linkNode,
+          el('p', 'Autor: @' + pr.author + ' · Merge por: @' + pr.merged_by + ' em ' + time(pr.merged_at) + ' · Base: ' + pr.base_branch, 'exec-pr-meta muted')
+        );
+        sec1.append(card);
+      }
+    }
+    container.append(sec1);
+
+    const sec2 = el('div', undefined, 'exec-section');
+    sec2.append(el('h4', '2. Aguardando revisão (' + executive.open_awaiting_review.length + ')', 'exec-section-title'));
+    if (executive.open_awaiting_review.length === 0) {
+      sec2.append(el('p', 'Nenhuma PR aberta aguardando aprovações.', 'muted'));
+    } else {
+      for (const pr of executive.open_awaiting_review) {
+        const card = el('div', undefined, 'exec-item-card');
+        const label = '#' + pr.number + ' ' + pr.title + (pr.is_draft ? ' [Rascunho]' : '');
+        const linkNode = el('a', label, 'exec-pr-link');
+        linkNode.href = pr.url;
+        linkNode.target = '_blank';
+        linkNode.rel = 'noopener noreferrer';
+        card.append(
+          linkNode,
+          el('p', 'Autor: @' + pr.author + ' · Aprovações observadas: ' + pr.approvals_observed + '/' + pr.expected_approvals + ' (expectativa local)', 'exec-pr-meta muted')
+        );
+        sec2.append(card);
+      }
+    }
+    container.append(sec2);
+
+    const sec3 = el('div', undefined, 'exec-section');
+    sec3.append(el('h4', '3. Possíveis bloqueios técnicos (' + executive.potential_blockers.length + ')', 'exec-section-title'));
+    if (executive.potential_blockers.length === 0) {
+      sec3.append(el('p', 'Nenhum bloqueio técnico crítico observado nas PRs ativas.', 'muted'));
+    } else {
+      for (const pr of executive.potential_blockers) {
+        const card = el('div', undefined, 'exec-item-card exec-card-blocker');
+        const linkNode = el('a', '#' + pr.number + ' ' + pr.title, 'exec-pr-link');
+        linkNode.href = pr.url;
+        linkNode.target = '_blank';
+        linkNode.rel = 'noopener noreferrer';
+        const reasonsList = el('ul', undefined, 'exec-reasons-list');
+        for (const r of pr.reasons) {
+          reasonsList.append(el('li', r));
+        }
+        card.append(
+          linkNode,
+          el('p', 'Autor: @' + pr.author + ' · CI: ' + pr.ci_state + ' · Mergeable: ' + pr.mergeable_state, 'exec-pr-meta muted'),
+          reasonsList
+        );
+        sec3.append(card);
+      }
+    }
+    container.append(sec3);
+
+    const sec4 = el('div', undefined, 'exec-section');
+    sec4.append(el('h4', '4. Participantes observados nas PRs coletadas (' + executive.participants.length + ')', 'exec-section-title'));
+    if (executive.participants.length === 0) {
+      sec4.append(el('p', 'Nenhum participante observado nas PRs coletadas.', 'muted'));
+    } else {
+      const pList = el('ul', undefined, 'exec-participants-list');
+      for (const p of executive.participants) {
+        pList.append(el('li', '@' + p.login + ': atuou como ' + p.roles.join(', ') + ' (PRs: ' + p.pr_numbers.map(n => '#' + n).join(', ') + ')'));
+      }
+      sec4.append(pList);
+    }
+    container.append(sec4);
+
+    const sec5 = el('div', undefined, 'exec-section');
+    sec5.append(el('h4', '5. Limitações e Fronteiras dos Dados', 'exec-section-title'));
+    const lList = el('ul', undefined, 'exec-limitations-list muted');
+    for (const lim of executive.limitations) {
+      lList.append(el('li', lim));
+    }
+    sec5.append(lList);
+    container.append(sec5);
+  }
+
   function emptyState(title, description, action, href) {
     const box = el('div', undefined, 'empty-state');
     box.append(el('h3', title), el('p', description));
@@ -357,6 +530,15 @@
       }
       if (content) content.textContent = report.content;
       if (copyBtn) copyBtn.disabled = false;
+      currentDrawerExecutive = report.executive || null;
+      const copyExecBtn = document.querySelector('#drawer-copy-exec-btn');
+      if (copyExecBtn) copyExecBtn.disabled = !report.executive?.available;
+      renderExecutiveView(document.querySelector('#drawer-executive'), report.executive);
+      if (report.executive?.available) {
+        switchViewTab('drawer', 'exec');
+      } else {
+        switchViewTab('drawer', 'tech');
+      }
     }
     const previous = cachedRead(path);
     if (copyBtn) copyBtn.disabled = !previous;
@@ -393,6 +575,15 @@
     if (title) title.textContent = reportNames(report);
     const content = document.querySelector('#report-content');
     if (content) content.textContent = report.content;
+    currentReportExecutive = report.executive || null;
+    const copyExecReportBtn = document.querySelector('#copy-exec-report');
+    if (copyExecReportBtn) copyExecReportBtn.disabled = !report.executive?.available;
+    renderExecutiveView(document.querySelector('#report-executive'), report.executive);
+    if (report.executive?.available) {
+      switchViewTab('report', 'exec');
+    } else {
+      switchViewTab('report', 'tech');
+    }
     const status = document.querySelector('#report-status');
     if (status) {
       status.textContent =
@@ -467,6 +658,50 @@
     });
 
     initSearch();
+
+    document.querySelector('#drawer-tab-exec')?.addEventListener('click', () => switchViewTab('drawer', 'exec'));
+    document.querySelector('#drawer-tab-tech')?.addEventListener('click', () => switchViewTab('drawer', 'tech'));
+    document.querySelector('#report-tab-exec')?.addEventListener('click', () => switchViewTab('report', 'exec'));
+    document.querySelector('#report-tab-tech')?.addEventListener('click', () => switchViewTab('report', 'tech'));
+
+    document.querySelector('#drawer-copy-exec-btn')?.addEventListener('click', async () => {
+      const text = currentDrawerExecutive?.markdown_text;
+      if (!text) {
+        notify('Resumo executivo não disponível para este relatório.', true);
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        const btnText = document.querySelector('#drawer-copy-exec-btn .btn-text');
+        if (btnText) {
+          const orig = btnText.textContent;
+          btnText.textContent = 'Copiado!';
+          setTimeout(() => { btnText.textContent = orig; }, 2000);
+        }
+      } catch {
+        notify('Não foi possível copiar o relatório para a área de transferência.', true);
+      }
+    });
+
+    document.querySelector('#copy-exec-report')?.addEventListener('click', async () => {
+      const text = currentReportExecutive?.markdown_text;
+      const btn = document.querySelector('#copy-exec-report');
+      if (!text) {
+        notify('Resumo executivo não disponível para este relatório.', true);
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        if (btn) {
+          const orig = btn.textContent;
+          btn.textContent = 'Copiado!';
+          btn.disabled = true;
+          setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+        }
+      } catch {
+        notify('Não foi possível copiar o relatório para a área de transferência.', true);
+      }
+    });
 
     document.querySelector('#drawer-close-btn')?.addEventListener('click', closeDrawerReport);
     document.querySelector('#drawer-backdrop')?.addEventListener('click', closeDrawerReport);

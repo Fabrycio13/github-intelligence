@@ -442,3 +442,278 @@ def test_history_repository_options_include_removed_repository_outside_filtered_
     assert _store(db, ids, "a2").list_reports()["repository_options"] == []
     db.execute("UPDATE github_intelligence.projects SET status='inactive' WHERE id=%s", (ids["project_a"],))
     assert store.list_reports()["repository_options"] == []
+
+
+
+def test_get_report_executive_with_persisted_snapshots_and_project_isolation(prepared_db):
+    import hashlib
+    from datetime import datetime, timezone
+
+    from psycopg.types.json import Jsonb
+
+    from github_intelligence.models import PullRequestSnapshot
+    from github_intelligence.persistence_payload import snapshot_payload
+
+    db, ids = prepared_db
+    store_a = _store(db, ids, "a")
+    store_b = _store(db, ids, "b")
+
+    now = datetime(2026, 10, 19, tzinfo=timezone.utc)
+    run_id = UUID(int=2)
+    db.execute(
+        "INSERT INTO github_intelligence.sync_runs"
+        "(id,client_id,project_id,repository_id,window_start,window_end,status,"
+        "created_at,started_at)"
+        " VALUES(%s,%s,%s,%s,'2026-10-01Z','2026-10-19Z','running',%s,'2026-10-19T01:00:00Z')",
+        (run_id, ids["client_a"], ids["project_a"], ids["repo_a"], "2026-10-19Z"),
+    )
+
+    pr1 = PullRequestSnapshot(
+        repository="owner/repo-a",
+        pull={
+            "number": 1,
+            "title": "Merged Feature",
+            "state": "closed",
+            "merged": True,
+            "merged_at": "2026-10-05T12:00:00Z",
+            "user": {"login": "dev1"},
+            "merged_by": {"login": "lead1"},
+            "head": {"sha": "11" * 20, "ref": "feat"},
+            "base": {"ref": "main"},
+            "html_url": "https://github.com/owner/repo-a/pull/1",
+        },
+        observed_at=now,
+    )
+    pr2 = PullRequestSnapshot(
+        repository="owner/repo-a",
+        pull={
+            "number": 2,
+            "title": "Open Fix",
+            "state": "open",
+            "created_at": "2026-10-06T10:00:00Z",
+            "user": {"login": "dev2"},
+            "head": {"sha": "22" * 20, "ref": "fix"},
+            "base": {"ref": "main"},
+            "html_url": "https://github.com/owner/repo-a/pull/2",
+        },
+        observed_at=now,
+    )
+
+    for p in (pr1, pr2):
+        payload = snapshot_payload(p)
+        digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+        db.execute(
+            "INSERT INTO github_intelligence.pr_snapshots"
+            "(client_id,project_id,repository_id,sync_run_id,pr_number,head_sha,observed_at,"
+            "evaluator_version,payload,fingerprint)"
+            " VALUES(%s,%s,%s,%s,%s,%s,clock_timestamp(),'test-v1',%s,%s)",
+            (
+                ids["client_a"], ids["project_a"], ids["repo_a"], run_id,
+                p.pull["number"], p.pull["head"]["sha"], Jsonb(payload), digest,
+            ),
+        )
+
+    db.execute(
+        (
+            "UPDATE github_intelligence.sync_runs "
+            "SET status='succeeded', finished_at='2026-10-19T02:00:00Z' WHERE id=%s"
+        ),
+        (run_id,),
+    )
+    report_id = UUID(int=20)
+    _report(db, ids, report_id, "2026-10-20Z", run_id, complete=True)
+
+    exec_result = store_a.get_report_executive(report_id)
+    assert exec_result["available"] is True
+    assert exec_result["summary"]["total_prs_observed"] == 2
+    assert exec_result["summary"]["merged_in_window_count"] == 1
+    assert exec_result["summary"]["open_awaiting_review_count"] == 1
+    assert exec_result["merged_in_window"][0]["number"] == 1
+    assert exec_result["open_awaiting_review"][0]["number"] == 2
+    logins = [part["login"] for part in exec_result["participants"]]
+    assert "dev1" in logins
+    assert "dev2" in logins
+    assert "lead1" in logins
+
+    # Project isolation: project_b cannot see project_a's executive report
+    exec_b = store_b.get_report_executive(report_id)
+    assert exec_b["available"] is False
+    assert "não encontrado neste escopo" in exec_b["reason"]
+
+
+def test_get_report_executive_case_a_complete_zero_prs(prepared_db):
+    db, ids = prepared_db
+    store_a = _store(db, ids, "a")
+    run_id = UUID(int=101)
+    db.execute(
+        "INSERT INTO github_intelligence.sync_runs"
+        "(id,client_id,project_id,repository_id,window_start,window_end,status,"
+        "created_at,started_at,finished_at)"
+        " VALUES(%s,%s,%s,%s,'2026-10-01Z','2026-10-19Z','succeeded',clock_timestamp(),"
+        "clock_timestamp(),clock_timestamp())",
+        (run_id, ids["client_a"], ids["project_a"], ids["repo_a"]),
+    )
+    report_id = UUID(int=102)
+    _report(db, ids, report_id, "2026-10-20Z", run_id=run_id, complete=True)
+
+    result = store_a.get_report_executive(report_id)
+    assert result["available"] is True
+    assert result["report_complete"] is True
+    assert result["summary"]["total_prs_observed"] == 0
+    assert result["summary"]["merged_in_window_count"] == 0
+    assert result["summary"]["open_awaiting_review_count"] == 0
+    assert result["summary"]["potential_blockers_count"] == 0
+    assert result["merged_in_window"] == []
+    assert result["open_awaiting_review"] == []
+    assert result["potential_blockers"] == []
+    assert result["participants"] == []
+    assert any("ausência total de atividade no GitHub" in lim for lim in result["limitations"])
+    assert "## 4. Participantes observados nas PRs coletadas (0)" in result["markdown_text"]
+
+
+def test_get_report_executive_case_b_legacy_report_without_sources(prepared_db):
+    db, ids = prepared_db
+    store_a = _store(db, ids, "a")
+    legacy_id = UUID(int=103)
+    # Legacy report has NO entry in report_sources (run_id=None)
+    _report(db, ids, legacy_id, "2026-10-20Z", run_id=None, complete=True)
+
+    exec_result = store_a.get_report_executive(legacy_id)
+    assert exec_result["available"] is False
+    assert "não possui dados estruturados associados" in exec_result["reason"]
+
+    # Technical report content must be 100% preserved
+    detail = store_a.get_report_details(legacy_id)
+    assert detail is not None
+    assert detail["content"] == "SYNTHETIC dashboard report"
+
+
+def test_get_report_executive_case_c_partial_collection_limitations(prepared_db):
+    db, ids = prepared_db
+    store_a = _store(db, ids, "a")
+    run_id = UUID(int=104)
+    _run(db, ids, run_id, "2026-10-18Z")  # status='partial'
+    report_id = UUID(int=105)
+    _report(db, ids, report_id, "2026-10-20Z", run_id=run_id, complete=False)
+
+    result = store_a.get_report_executive(report_id)
+    assert result["available"] is True
+    assert result["report_complete"] is False
+    assert any("Relatório parcial" in lim for lim in result["limitations"])
+
+
+def test_get_report_executive_case_c_invalid_and_incompatible_snapshots(prepared_db):
+    import hashlib
+
+    from psycopg.types.json import Jsonb
+
+    db, ids = prepared_db
+    store_a = _store(db, ids, "a")
+    run_id = UUID(int=106)
+    db.execute(
+        "INSERT INTO github_intelligence.sync_runs"
+        "(id,client_id,project_id,repository_id,window_start,window_end,status,"
+        "created_at,started_at)"
+        " VALUES(%s,%s,%s,%s,'2026-10-01Z','2026-10-19Z','running',clock_timestamp(),clock_timestamp())",
+        (run_id, ids["client_a"], ids["project_a"], ids["repo_a"]),
+    )
+
+    # Invalid payload: snapshot body has incompatible/corrupted schema
+    bad_payload = {"schema_version": 1, "snapshot": {"corrupted_metadata": True}}
+    digest = hashlib.sha256(b"bad").hexdigest()
+    db.execute(
+        "INSERT INTO github_intelligence.pr_snapshots"
+        "(client_id,project_id,repository_id,sync_run_id,pr_number,head_sha,observed_at,"
+        "evaluator_version,payload,fingerprint)"
+        " VALUES(%s,%s,%s,%s,%s,%s,clock_timestamp(),'test-v1',%s,%s)",
+        (ids["client_a"], ids["project_a"], ids["repo_a"], run_id, 1, "ba" * 20, Jsonb(bad_payload), digest),
+    )
+    db.execute(
+        ("UPDATE github_intelligence.sync_runs "
+         "SET status='succeeded', finished_at=clock_timestamp() WHERE id=%s"),
+        (run_id,),
+    )
+
+    report_id = UUID(int=107)
+    _report(db, ids, report_id, "2026-10-20Z", run_id=run_id, complete=True)
+
+    result = store_a.get_report_executive(report_id)
+    assert result["available"] is False
+    assert "snapshots estruturados inválidos ou incompatíveis" in result["reason"]
+
+    # Original content preserved
+    detail = store_a.get_report_details(report_id)
+    assert detail is not None
+    assert detail["content"] == "SYNTHETIC dashboard report"
+
+
+def test_get_report_executive_does_not_silently_discard_invalid_snapshot(prepared_db):
+    import hashlib
+    from datetime import datetime, timezone
+
+    from psycopg.types.json import Jsonb
+
+    from github_intelligence.models import PullRequestSnapshot
+    from github_intelligence.persistence_payload import snapshot_payload
+
+    db, ids = prepared_db
+    store_a = _store(db, ids, "a")
+    run_id = UUID(int=108)
+    db.execute(
+        "INSERT INTO github_intelligence.sync_runs"
+        "(id,client_id,project_id,repository_id,window_start,window_end,status,"
+        "created_at,started_at)"
+        " VALUES(%s,%s,%s,%s,'2026-10-01Z','2026-10-19Z','running',clock_timestamp(),clock_timestamp())",
+        (run_id, ids["client_a"], ids["project_a"], ids["repo_a"]),
+    )
+
+    # 1 valid snapshot
+    pr_valid = PullRequestSnapshot(
+        repository="owner/repo-a",
+        pull={
+            "number": 1,
+            "title": "Good PR",
+            "state": "closed",
+            "merged": True,
+            "merged_at": "2026-10-05T12:00:00Z",
+            "user": {"login": "dev1"},
+            "merged_by": {"login": "lead1"},
+            "head": {"sha": "11" * 20, "ref": "feat"},
+            "base": {"ref": "main"},
+            "html_url": "https://github.com/owner/repo-a/pull/1",
+        },
+        observed_at=datetime(2026, 10, 19, tzinfo=timezone.utc),
+    )
+    good_payload = snapshot_payload(pr_valid)
+    d1 = hashlib.sha256(b"good").hexdigest()
+    db.execute(
+        "INSERT INTO github_intelligence.pr_snapshots"
+        "(client_id,project_id,repository_id,sync_run_id,pr_number,head_sha,observed_at,"
+        "evaluator_version,payload,fingerprint)"
+        " VALUES(%s,%s,%s,%s,%s,%s,clock_timestamp(),'test-v1',%s,%s)",
+        (ids["client_a"], ids["project_a"], ids["repo_a"], run_id, 1, "11" * 20, Jsonb(good_payload), d1),
+    )
+
+    # 1 corrupted snapshot that passes DB jsonb check but fails Pydantic/contract validation
+    bad_payload = {"schema_version": 1, "snapshot": {"pull": "not a dictionary"}}
+    d2 = hashlib.sha256(b"bad2").hexdigest()
+    db.execute(
+        "INSERT INTO github_intelligence.pr_snapshots"
+        "(client_id,project_id,repository_id,sync_run_id,pr_number,head_sha,observed_at,"
+        "evaluator_version,payload,fingerprint)"
+        " VALUES(%s,%s,%s,%s,%s,%s,clock_timestamp(),'test-v1',%s,%s)",
+        (ids["client_a"], ids["project_a"], ids["repo_a"], run_id, 2, "be" * 20, Jsonb(bad_payload), d2),
+    )
+    db.execute(
+        ("UPDATE github_intelligence.sync_runs "
+         "SET status='succeeded', finished_at=clock_timestamp() WHERE id=%s"),
+        (run_id,),
+    )
+
+    report_id = UUID(int=109)
+    _report(db, ids, report_id, "2026-10-20Z", run_id=run_id, complete=True)
+
+    # Must NOT return available: True with total_prs_observed=1
+    result = store_a.get_report_executive(report_id)
+    assert result["available"] is False
+    assert "snapshots estruturados inválidos ou incompatíveis" in result["reason"]
