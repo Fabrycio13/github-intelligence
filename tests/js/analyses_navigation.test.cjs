@@ -139,3 +139,72 @@ test('a collection finishing while reading shows a notice without replacing card
   assert.equal(app.get('#report-drawer').dataset.open, 'true');
   assert.equal(app.requests.filter(item => item.url.startsWith('/api/reports?')).length, 1);
 });
+
+test('drawer renders executive view and allows switching between executive and technical tabs', async () => {
+  const app = await ready();
+  openCard(app);
+  await tick();
+  const execReport = {
+    ...report(10),
+    executive: {
+      available: true,
+      summary: {
+        total_prs_observed: 1,
+        merged_in_window_count: 1,
+        open_awaiting_review_count: 0,
+        potential_blockers_count: 0,
+      },
+      merged_in_window: [
+        {
+          number: 18,
+          title: 'Docs update',
+          url: 'https://github.com/owner/repo/pull/18',
+          author: 'Fabrycio13',
+          merged_by: 'Fabrycio13',
+          merged_at: '2026-11-03T20:33:45Z',
+          base_branch: 'main',
+        },
+      ],
+      open_awaiting_review: [],
+      potential_blockers: [],
+      participants: [{login: 'Fabrycio13', roles: ['author', 'merged_by'], pr_numbers: [18]}],
+      limitations: ['Merge não prova deploy.'],
+      markdown_text: '# Exec Summary',
+    },
+  };
+  await app.respond('/' + id(10) + '/details', execReport);
+  assert.equal(app.get('#drawer-executive').hidden, false);
+  assert.equal(app.get('#drawer-content').hidden, true);
+  assert.match(app.get('#drawer-tab-exec').className, /active/);
+
+  // Switch to Technical
+  app.get('#drawer-tab-tech').listeners.click();
+  await tick();
+  assert.equal(app.get('#drawer-executive').hidden, true);
+  assert.equal(app.get('#drawer-content').hidden, false);
+  assert.match(app.get('#drawer-tab-tech').className, /active/);
+
+  // Switch back to Executive
+  app.get('#drawer-tab-exec').listeners.click();
+  await tick();
+  assert.equal(app.get('#drawer-executive').hidden, false);
+  assert.equal(app.get('#drawer-content').hidden, true);
+});
+
+test('drawer displays unavailable notice when executive summary is not available', async () => {
+  const app = await ready();
+  openCard(app);
+  await tick();
+  const legacyReport = {
+    ...report(10),
+    executive: {
+      available: false,
+      reason: 'Snapshots estruturados não disponíveis para este relatório histórico.',
+    },
+  };
+  await app.respond('/' + id(10) + '/details', legacyReport);
+  assert.equal(app.get('#drawer-content').hidden, false);
+  assert.match(app.get('#drawer-tab-tech').className, /active/);
+  assert.equal(app.get('#drawer-copy-exec-btn').disabled, true);
+  assert.match(app.get('#drawer-executive').children[0].children[1].textContent, /Snapshots estruturados não disponíveis/);
+});

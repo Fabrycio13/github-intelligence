@@ -252,3 +252,35 @@ def test_refresh_uses_the_public_cli_with_fixed_scope_and_no_shell(tmp_path, mon
     assert args[args.index("--project-id") + 1] == REPORT
     assert args[-1] == "--apply"
     assert runner.call_args.kwargs.get("shell", False) is False
+
+
+
+def test_report_details_route_attaches_executive_payload():
+    with running() as (app, client, writes):
+        res1 = client.get(f"/api/reports/{REPORT}/details")
+        assert res1.status_code == 200
+        assert res1.json()["executive"]["available"] is False
+        assert "content" in res1.json()
+
+        app.store.get_report_executive = lambda rid: {
+            "available": True,
+            "summary": {
+                "total_prs_observed": 1,
+                "merged_in_window_count": 1,
+                "open_awaiting_review_count": 0,
+                "potential_blockers_count": 0,
+            },
+            "merged_in_window": [{"number": 42, "title": "Test PR", "url": "https://github.com/owner/repo/pull/42"}],
+            "open_awaiting_review": [],
+            "potential_blockers": [],
+            "participants": [],
+            "limitations": [],
+            "markdown_text": "# Exec",
+        }
+        res2 = client.get(f"/api/reports/{REPORT}/details")
+        assert res2.status_code == 200
+        data = res2.json()
+        assert data["executive"]["available"] is True
+        assert data["executive"]["summary"]["total_prs_observed"] == 1
+        assert data["executive"]["merged_in_window"][0]["number"] == 42
+        assert "content" in data

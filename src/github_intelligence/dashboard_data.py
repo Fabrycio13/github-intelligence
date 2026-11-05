@@ -193,7 +193,9 @@ class DashboardStore:
                 assert row is not None
                 return row
 
-    def get_report_details(self, report_id: UUID) -> dict[str, Any] | None:
+    def get_report_details(
+        self, report_id: UUID, *, include_executive: bool = False
+    ) -> dict[str, Any] | None:
         with self._connection_factory() as connection, project_transaction(connection, self._scope):
             connection.execute("SET LOCAL TIME ZONE 'UTC'")
             with connection.cursor(row_factory=dict_row) as cursor:
@@ -205,7 +207,84 @@ class DashboardStore:
                         WHERE summary.id=%s""",
                     (self._scope.client_id, self._scope.project_id, report_id),
                 ).fetchone()
-                return None if row is None else row["detail"]
+                if row is None:
+                    return None
+                detail = row["detail"]
+                if include_executive:
+                    detail["executive"] = self.get_report_executive(report_id)
+                return detail
+
+    def get_report_executive(self, report_id: UUID) -> dict[str, Any]:
+        with self._connection_factory() as connection, project_transaction(connection, self._scope):
+            connection.execute("SET LOCAL TIME ZONE 'UTC'")
+            with connection.cursor(row_factory=dict_row) as cursor:
+                report_row = cursor.execute(
+                    "SELECT report.window_start, report.window_end, report.complete"
+                    " FROM github_intelligence.reports report"
+                    " JOIN github_intelligence.projects p"
+                    "   ON (p.client_id, p.id) = (report.client_id, report.project_id)"
+                    " JOIN github_intelligence.clients c ON c.id = report.client_id"
+                    " WHERE report.id = %s AND report.client_id = %s AND report.project_id = %s"
+                    "   AND c.status = 'active' AND p.status = 'active'",
+                    (report_id, self._scope.client_id, self._scope.project_id),
+                ).fetchone()
+                if report_row is None:
+                    return {
+                        "available": False,
+                        "reason": "Relatório não encontrado neste escopo de projeto.",
+                    }
+
+                snapshot_rows = cursor.execute(
+                    "SELECT DISTINCT snap.id, snap.pr_number, snap.payload,"
+                    " r.full_name AS repository_full_name, r.expected_approvals, r.staging_branch"
+                    " FROM github_intelligence.report_sources rs"
+                    " JOIN github_intelligence.sync_runs sr"
+                    "   ON (sr.client_id, sr.project_id, sr.id) "
+"     = (rs.client_id, rs.project_id, rs.sync_run_id)"
+                    " JOIN github_intelligence.repositories r"
+                    "   ON (r.client_id, r.project_id, r.id) "
+"     = (sr.client_id, sr.project_id, sr.repository_id)"
+                    " JOIN github_intelligence.pr_snapshots snap"
+                    "   ON (snap.client_id, snap.project_id, snap.sync_run_id) "
+"     = (sr.client_id, sr.project_id, sr.id)"
+                    "   AND (rs.snapshot_id IS NULL OR rs.snapshot_id = snap.id)"
+                    " WHERE rs.client_id = %s AND rs.project_id = %s AND rs.report_id = %s"
+                    " ORDER BY snap.pr_number ASC",
+                    (self._scope.client_id, self._scope.project_id, report_id),
+                ).fetchall()
+
+                if not snapshot_rows:
+                    return {
+                        "available": False,
+                        "reason": "Snapshots estruturados não disponíveis para este relatório histórico.",
+                    }
+
+                from github_intelligence.models import ReportWindow, RepositoryConfig
+                from github_intelligence.persistence_payload import restore_snapshot
+                from github_intelligence.report import build_executive_summary
+
+                snapshots = []
+                configs: dict[str, RepositoryConfig] = {}
+                for row in snapshot_rows:
+                    payload = row["payload"]
+                    snap = restore_snapshot(payload)
+                    snapshots.append(snap)
+                    repo_name = row["repository_full_name"]
+                    if repo_name not in configs:
+                        configs[repo_name] = RepositoryConfig(
+                            full_name=repo_name,
+                            required_approvals=row.get("expected_approvals") or 2,
+                            staging_branch=row.get("staging_branch"),
+                        )
+
+                window = ReportWindow(since=report_row["window_start"], until=report_row["window_end"])
+                return build_executive_summary(
+                    snapshots,
+                    window,
+                    repository_configs=configs,
+                    report_complete=bool(report_row["complete"]),
+                )
+
 
     def get_report(self, report_id: UUID) -> dict[str, Any] | None:
         with self._connection_factory() as connection, project_transaction(connection, self._scope):

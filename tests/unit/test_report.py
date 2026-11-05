@@ -208,3 +208,144 @@ def test_quotes_and_literal_entities_cannot_break_text_escaping() -> None:
 
 def test_no_repositories_is_explicit() -> None:
     assert "Nenhum repositório" in render_report([], WINDOW)
+
+
+
+def test_executive_summary_empty_snapshots() -> None:
+    from github_intelligence.report import build_executive_summary
+
+    summary = build_executive_summary([], WINDOW)
+    assert summary["available"] is True
+    assert summary["summary"]["total_prs_observed"] == 0
+    assert summary["summary"]["merged_in_window_count"] == 0
+    assert summary["summary"]["open_awaiting_review_count"] == 0
+    assert summary["summary"]["potential_blockers_count"] == 0
+    assert summary["merged_in_window"] == []
+    assert summary["open_awaiting_review"] == []
+    assert summary["potential_blockers"] == []
+    assert summary["participants"] == []
+    assert len(summary["limitations"]) == 4
+    assert "# Relatório Executivo Semanal" in summary["markdown_text"]
+
+
+def test_executive_summary_half_open_utc_window_boundaries() -> None:
+    from github_intelligence.report import build_executive_summary
+
+    # WINDOW is [2026-10-18T00:00:00Z, 2026-10-19T00:00:00Z)
+    pr_before = pr(
+        pull={"number": 1, "merged": True, "merged_at": "2026-10-17T23:59:59Z", "state": "closed"}
+    )
+    pr_exact_start = pr(
+        pull={"number": 2, "merged": True, "merged_at": "2026-10-18T00:00:00Z", "state": "closed"}
+    )
+    pr_inside = pr(
+        pull={"number": 3, "merged": True, "merged_at": "2026-10-18T12:00:00Z", "state": "closed"}
+    )
+    pr_exact_end = pr(
+        pull={"number": 4, "merged": True, "merged_at": "2026-10-19T00:00:00Z", "state": "closed"}
+    )
+    pr_after = pr(
+        pull={"number": 5, "merged": True, "merged_at": "2026-10-19T00:00:01Z", "state": "closed"}
+    )
+
+    summary = build_executive_summary(
+        [pr_before, pr_exact_start, pr_inside, pr_exact_end, pr_after],
+        WINDOW,
+    )
+    merged_numbers = [item["number"] for item in summary["merged_in_window"]]
+    # Exact start (since) is included; exact end (until) is excluded!
+    assert merged_numbers == [3, 2]
+    assert summary["summary"]["merged_in_window_count"] == 2
+
+
+def test_executive_summary_open_awaiting_review_and_blockers() -> None:
+    from github_intelligence.report import build_executive_summary
+
+    pr_awaiting = pr(
+        pull={"number": 10, "state": "open", "title": "Awaiting", "created_at": "2026-10-18T10:00:00Z"},
+    )
+    pr_blocked_ci = pr(
+        pull={"number": 11, "state": "open", "title": "Failing CI", "created_at": "2026-10-18T10:00:00Z"},
+        checks=[
+            {"name": "test", "head_sha": "head", "status": "completed", "conclusion": "failure", "id": 1}
+        ],
+    )
+    pr_conflict = pr(
+        pull={
+            "number": 12,
+            "state": "open",
+            "title": "Conflicting",
+            "mergeable": False,
+            "mergeable_state": "dirty",
+        },
+    )
+    pr_approved = pr(
+        pull={"number": 13, "state": "open", "title": "Approved"},
+        reviews=[
+            {"state": "APPROVED", "user": {"login": "rev1"}, "submitted_at": "2026-10-18T11:00:00Z", "id": 1},
+            {"state": "APPROVED", "user": {"login": "rev2"}, "submitted_at": "2026-10-18T11:30:00Z", "id": 2},
+        ],
+    )
+
+    summary = build_executive_summary(
+        [pr_awaiting, pr_blocked_ci, pr_conflict, pr_approved],
+        WINDOW,
+    )
+    awaiting_nums = [item["number"] for item in summary["open_awaiting_review"]]
+    blocker_nums = [item["number"] for item in summary["potential_blockers"]]
+
+    assert 10 in awaiting_nums
+    assert 11 in awaiting_nums
+    assert 12 in awaiting_nums
+    assert 13 not in awaiting_nums
+
+    assert 11 in blocker_nums
+    assert 12 in blocker_nums
+    assert 10 not in blocker_nums
+    assert 13 not in blocker_nums
+
+
+def test_executive_summary_participants_without_ranking() -> None:
+    from github_intelligence.report import build_executive_summary
+
+    pr_item = pr(
+        pull={
+            "number": 20,
+            "user": {"login": "Alice"},
+            "merged": True,
+            "merged_at": "2026-10-18T10:00:00Z",
+            "merged_by": {"login": "Bob"},
+        },
+        reviews=[
+            {"state": "APPROVED", "user": {"login": "charlie"}, "id": 1},
+        ],
+        commits=[
+            {"sha": "c1", "author": {"login": "Alice"}, "committer": {"login": "Dave"}},
+        ],
+    )
+    summary = build_executive_summary([pr_item], WINDOW)
+    participants = summary["participants"]
+    logins = [p["login"] for p in participants]
+    assert logins == ["Alice", "Bob", "charlie", "Dave"]
+    alice = next(p for p in participants if p["login"] == "Alice")
+    assert "author" in alice["roles"]
+    bob = next(p for p in participants if p["login"] == "Bob")
+    assert "merged_by" in bob["roles"]
+    charlie = next(p for p in participants if p["login"] == "charlie")
+    assert "reviewer" in charlie["roles"]
+    for p in participants:
+        assert "rank" not in p
+        assert "score" not in p
+        assert "points" not in p
+
+
+def test_executive_summary_partial_limitations_and_sanitization() -> None:
+    from github_intelligence.report import build_executive_summary
+
+    pr_inconsistent = pr(
+        pull={"number": 30, "title": "Unsafe <script>alert(1)</script>"},
+        consistent=False,
+        limitations=["Falha na coleta de checks."],
+    )
+    summary = build_executive_summary([pr_inconsistent], WINDOW, report_complete=False)
+    assert any("parcial" in lim.lower() for lim in summary["limitations"])

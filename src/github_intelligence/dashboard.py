@@ -34,6 +34,7 @@ class Store(Protocol):
     ) -> dict[str, Any]: ...
     def get_report_details(self, report_id: UUID) -> dict[str, Any] | None: ...
     def get_dashboard(self) -> dict[str, Any]: ...
+    def get_report_executive(self, report_id: UUID) -> dict[str, Any]: ...
 
 
 class DashboardApp:
@@ -231,6 +232,18 @@ def make_server(app: DashboardApp, *, port: int = 8765) -> ThreadingHTTPServer:
                     )
                     if report is None:
                         raise DashboardError(404, "Relatório não encontrado neste projeto.")
+                    if details and "executive" not in report:
+                        executive_fn = getattr(app.store, "get_report_executive", None)
+                        if callable(executive_fn):
+                            report["executive"] = executive_fn(report_id)
+                        else:
+                            report["executive"] = {
+                                "available": False,
+                                "reason": (
+                                    "Snapshots estruturados não disponíveis "
+                                    "para este relatório histórico."
+                                ),
+                            }
                     self.json(200, report)
                 else:
                     raise DashboardError(404, "Página não encontrada.")
