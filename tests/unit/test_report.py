@@ -31,6 +31,7 @@ def test_empty_report_is_honest_and_labels_auth_and_interval() -> None:
 
 
 def pr(**overrides: Any) -> PullRequestSnapshot:
+    repo = overrides.pop("repository", "owner/repo")
     pull = {
         "number": 1,
         "title": "Change",
@@ -38,10 +39,10 @@ def pr(**overrides: Any) -> PullRequestSnapshot:
         "head": {"sha": "head"},
         "base": {"ref": "main"},
         "user": {"login": "author"},
-        "html_url": "https://github.com/owner/repo/pull/1",
+        "html_url": f"https://github.com/{repo}/pull/1",
     }
     pull.update(overrides.pop("pull", {}))
-    return PullRequestSnapshot(repository="owner/repo", pull=pull, observed_at=NOW, **overrides)
+    return PullRequestSnapshot(repository=repo, pull=pull, observed_at=NOW, **overrides)
 
 
 def report(item: PullRequestSnapshot, **overrides: Any) -> str:
@@ -219,9 +220,11 @@ def test_executive_summary_empty_snapshots() -> None:
     assert summary["summary"]["total_prs_observed"] == 0
     assert summary["summary"]["merged_in_window_count"] == 0
     assert summary["summary"]["open_awaiting_review_count"] == 0
+    assert summary["summary"]["open_drafts_count"] == 0
     assert summary["summary"]["potential_blockers_count"] == 0
     assert summary["merged_in_window"] == []
     assert summary["open_awaiting_review"] == []
+    assert summary["open_drafts"] == []
     assert summary["potential_blockers"] == []
     assert summary["participants"] == []
     assert len(summary["limitations"]) == 4
@@ -360,9 +363,11 @@ def test_executive_summary_empty_snapshots_has_zeroed_counts_and_safe_caveat() -
     assert summary["summary"]["total_prs_observed"] == 0
     assert summary["summary"]["merged_in_window_count"] == 0
     assert summary["summary"]["open_awaiting_review_count"] == 0
+    assert summary["summary"]["open_drafts_count"] == 0
     assert summary["summary"]["potential_blockers_count"] == 0
     assert summary["merged_in_window"] == []
     assert summary["open_awaiting_review"] == []
+    assert summary["open_drafts"] == []
     assert summary["potential_blockers"] == []
     assert summary["participants"] == []
     assert any("ausência total de atividade no GitHub" in lim for lim in summary["limitations"])
@@ -388,3 +393,226 @@ def test_executive_summary_participants_semantics_in_markdown() -> None:
     assert "@Alice" in md
     assert "@Bob" in md
     assert any("participantes identificados" in lim.lower() for lim in summary["limitations"])
+
+
+def test_executive_summary_draft_prs_segregated_from_awaiting_review() -> None:
+    from github_intelligence.report import build_executive_summary
+
+    pr_ready = pr(pull={"number": 10, "state": "open", "draft": False, "title": "Ready"})
+    pr_draft_unreviewed = pr(pull={"number": 11, "state": "open", "draft": True, "title": "Draft Unreviewed"})
+    pr_draft_approved = pr(
+        pull={"number": 12, "state": "open", "draft": True, "title": "Draft Approved"},
+        reviews=[
+            {"state": "APPROVED", "user": {"login": "r1"}, "id": 1},
+            {"state": "APPROVED", "user": {"login": "r2"}, "id": 2},
+        ],
+    )
+    pr_ready_approved = pr(
+        pull={"number": 13, "state": "open", "draft": False, "title": "Ready Approved"},
+        reviews=[
+            {"state": "APPROVED", "user": {"login": "r1"}, "id": 1},
+            {"state": "APPROVED", "user": {"login": "r2"}, "id": 2},
+        ],
+    )
+
+    summary = build_executive_summary(
+        [pr_ready, pr_draft_unreviewed, pr_draft_approved, pr_ready_approved],
+        WINDOW,
+        repository_configs={"owner/repo": RepositoryConfig(full_name="owner/repo", required_approvals=2)},
+    )
+
+    awaiting_nums = [item["number"] for item in summary["open_awaiting_review"]]
+    draft_nums = [item["number"] for item in summary["open_drafts"]]
+
+    assert awaiting_nums == [10]
+    assert 11 in draft_nums
+    assert 12 in draft_nums
+    assert 13 not in awaiting_nums
+    assert 13 not in draft_nums
+
+    # Counts
+    assert summary["summary"]["open_awaiting_review_count"] == 1
+    assert summary["summary"]["open_drafts_count"] == 2
+    assert summary["summary"]["total_prs_observed"] == 4
+
+    # Absence of duplication
+    assert set(awaiting_nums).isdisjoint(set(draft_nums))
+
+
+def test_executive_summary_draft_prs_with_potential_blockers() -> None:
+    from github_intelligence.report import build_executive_summary
+
+    pr_draft_blocked = pr(
+        pull={"number": 21, "state": "open", "draft": True, "title": "Draft with Broken CI"},
+        checks=[
+            {"name": "test", "head_sha": "head", "status": "completed", "conclusion": "failure", "id": 1}
+        ],
+    )
+
+    summary = build_executive_summary([pr_draft_blocked], WINDOW)
+    draft_nums = [item["number"] for item in summary["open_drafts"]]
+    awaiting_nums = [item["number"] for item in summary["open_awaiting_review"]]
+    blocker_nums = [item["number"] for item in summary["potential_blockers"]]
+
+    assert 21 in draft_nums
+    assert 21 not in awaiting_nums
+    assert 21 in blocker_nums
+    blocker_item = next(b for b in summary["potential_blockers"] if b["number"] == 21)
+    assert any("Verificações automatizadas (CI) com falha" in r for r in blocker_item["reasons"])
+
+
+def test_executive_summary_blockers_neutral_and_accessible_language() -> None:
+    from github_intelligence.report import build_executive_summary
+
+    pr_ci = pr(
+        pull={"number": 31, "state": "open", "title": "CI Fail"},
+        statuses=[{"state": "failure", "context": "ci/tests", "sha": "head"}],
+    )
+    pr_mergeable_false = pr(
+        pull={"number": 32, "state": "open", "title": "Mergeable False", "mergeable": False},
+    )
+    pr_dirty = pr(
+        pull={"number": 33, "state": "open", "title": "Dirty", "mergeable": True, "mergeable_state": "dirty"},
+    )
+    pr_blocked = pr(
+        pull={
+            "number": 34,
+            "state": "open",
+            "title": "Blocked State",
+            "mergeable": True,
+            "mergeable_state": "blocked",
+        },
+    )
+    pr_changes = pr(
+        pull={"number": 35, "state": "open", "title": "Changes Req"},
+        reviews=[{"state": "CHANGES_REQUESTED", "user": {"login": "rev"}, "id": 1}],
+    )
+
+    summary = build_executive_summary(
+        [pr_ci, pr_mergeable_false, pr_dirty, pr_blocked, pr_changes],
+        WINDOW,
+    )
+    blockers = {b["number"]: b["reasons"] for b in summary["potential_blockers"]}
+
+    # CI
+    assert any("Verificações automatizadas (CI) com falha (status: failing)." in r for r in blockers[31])
+    # Mergeable False
+    assert any("Conflito de mesclagem com a branch base (mergeable: false)." in r for r in blockers[32])
+    # Dirty
+    assert any(
+        "Branch em conflito com a base impedindo mesclagem direta (mergeable_state: dirty)." in r
+        for r in blockers[33]
+    )
+    # Blocked (Strictly neutral without guessing cause)
+    assert any(
+        "Mesclagem bloqueada ou restrita no GitHub (mergeable_state: blocked)." in r
+        for r in blockers[34]
+    )
+    # Changes requested
+    assert any(
+        "Revisão com alterações solicitadas pelo revisor (CHANGES_REQUESTED)." in r
+        for r in blockers[35]
+    )
+
+
+def test_executive_summary_multi_repository_and_markdown_formatting() -> None:
+    from github_intelligence.report import build_executive_summary
+
+    pr_fe_merged = pr(
+        repository="org/frontend",
+        pull={
+            "number": 101,
+            "title": "FE Login",
+            "html_url": "https://github.com/org/frontend/pull/101",
+            "merged": True,
+            "merged_at": "2026-10-18T12:00:00Z",
+            "merged_by": {"login": "lead"},
+            "user": {"login": "dev1"},
+        },
+    )
+    pr_be_awaiting = pr(
+        repository="org/backend",
+        pull={
+            "number": 201,
+            "state": "open",
+            "draft": False,
+            "title": "BE Auth",
+            "html_url": "https://github.com/org/backend/pull/201",
+            "user": {"login": "dev2"},
+        },
+    )
+    pr_be_draft = pr(
+        repository="org/backend",
+        pull={
+            "number": 202,
+            "state": "open",
+            "draft": True,
+            "title": "BE Kafka",
+            "html_url": "https://github.com/org/backend/pull/202",
+            "user": {"login": "dev3"},
+        },
+    )
+    pr_fe_blocked = pr(
+        repository="org/frontend",
+        pull={
+            "number": 102,
+            "state": "open",
+            "draft": False,
+            "title": "FE Profile",
+            "html_url": "https://github.com/org/frontend/pull/102",
+            "user": {"login": "dev1"},
+        },
+        statuses=[{"state": "failure", "context": "ci/tests", "sha": "head"}],
+    )
+
+    summary = build_executive_summary(
+        [pr_fe_merged, pr_be_awaiting, pr_be_draft, pr_fe_blocked],
+        WINDOW,
+    )
+
+    # Check that repository key is present in each item
+    assert summary["merged_in_window"][0]["repository"] == "org/frontend"
+    assert summary["open_awaiting_review"][0]["repository"] == "org/backend"
+    assert summary["open_drafts"][0]["repository"] == "org/backend"
+    assert summary["potential_blockers"][0]["repository"] == "org/frontend"
+
+    md = summary["markdown_text"]
+
+    # Check Markdown contains canonical repository tag on each section
+    assert "[#101 FE Login](https://github.com/org/frontend/pull/101) · org/frontend" in md
+    assert "[#201 BE Auth](https://github.com/org/backend/pull/201) · org/backend" in md
+    assert "### Em preparação / rascunho (1)" in md
+    assert "[#202 BE Kafka](https://github.com/org/backend/pull/202) · org/backend" in md
+    assert "[#102 FE Profile](https://github.com/org/frontend/pull/102) · org/frontend" in md
+
+
+
+def test_executive_summary_malicious_title_and_unknown_blocker_state() -> None:
+    from github_intelligence.report import build_executive_summary
+
+    pr_xss = pr(
+        repository="org/frontend",
+        pull={
+            "number": 999,
+            "title": "Fix <script>alert(1)</script> [test](link)",
+            "state": "open",
+            "draft": False,
+            "mergeable": False,
+            "mergeable_state": "unknown_custom_state",
+        },
+    )
+
+    summary = build_executive_summary([pr_xss], WINDOW)
+    blockers = summary["potential_blockers"]
+    assert len(blockers) == 1
+    assert blockers[0]["number"] == 999
+    assert blockers[0]["repository"] == "org/frontend"
+    assert any(
+        "Conflito de mesclagem com a branch base (mergeable: false)." in r
+        for r in blockers[0]["reasons"]
+    )
+    assert blockers[0]["mergeable_state"] == "unknown_custom_state"
+
+    md = summary["markdown_text"]
+    assert "· org/frontend" in md
+    assert "<script>" not in md

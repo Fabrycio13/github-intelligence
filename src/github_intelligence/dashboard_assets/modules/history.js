@@ -177,12 +177,17 @@
     } else {
       for (const pr of executive.merged_in_window) {
         const card = el('div', undefined, 'exec-item-card');
+        const header = el('div', undefined, 'exec-card-header');
         const linkNode = el('a', '#' + pr.number + ' ' + pr.title, 'exec-pr-link');
         linkNode.href = pr.url;
         linkNode.target = '_blank';
         linkNode.rel = 'noopener noreferrer';
+        header.append(linkNode);
+        if (pr.repository) {
+          header.append(el('span', pr.repository, 'code-pill exec-repo-pill'));
+        }
         card.append(
-          linkNode,
+          header,
           el('p', 'Autor: @' + pr.author + ' · Merge por: @' + pr.merged_by + ' em ' + time(pr.merged_at) + ' · Base: ' + pr.base_branch, 'exec-pr-meta muted')
         );
         sec1.append(card);
@@ -197,17 +202,45 @@
     } else {
       for (const pr of executive.open_awaiting_review) {
         const card = el('div', undefined, 'exec-item-card');
-        const label = '#' + pr.number + ' ' + pr.title + (pr.is_draft ? ' [Rascunho]' : '');
-        const linkNode = el('a', label, 'exec-pr-link');
+        const header = el('div', undefined, 'exec-card-header');
+        const linkNode = el('a', '#' + pr.number + ' ' + pr.title, 'exec-pr-link');
         linkNode.href = pr.url;
         linkNode.target = '_blank';
         linkNode.rel = 'noopener noreferrer';
+        header.append(linkNode);
+        if (pr.repository) {
+          header.append(el('span', pr.repository, 'code-pill exec-repo-pill'));
+        }
         card.append(
-          linkNode,
+          header,
           el('p', 'Autor: @' + pr.author + ' · Aprovações observadas: ' + pr.approvals_observed + '/' + pr.expected_approvals + ' (expectativa local)', 'exec-pr-meta muted')
         );
         sec2.append(card);
       }
+    }
+
+    const drafts = executive.open_drafts || [];
+    if (drafts.length > 0) {
+      const draftSub = el('div', undefined, 'exec-subsection');
+      draftSub.append(el('h5', 'Em preparação / rascunho (' + drafts.length + ')', 'exec-subsection-title muted'));
+      for (const pr of drafts) {
+        const card = el('div', undefined, 'exec-item-card exec-card-draft');
+        const header = el('div', undefined, 'exec-card-header');
+        const linkNode = el('a', '#' + pr.number + ' ' + pr.title, 'exec-pr-link');
+        linkNode.href = pr.url;
+        linkNode.target = '_blank';
+        linkNode.rel = 'noopener noreferrer';
+        header.append(linkNode);
+        if (pr.repository) {
+          header.append(el('span', pr.repository, 'code-pill exec-repo-pill'));
+        }
+        card.append(
+          header,
+          el('p', 'Autor: @' + pr.author + ' · Em preparação (rascunho)', 'exec-pr-meta muted')
+        );
+        draftSub.append(card);
+      }
+      sec2.append(draftSub);
     }
     container.append(sec2);
 
@@ -218,16 +251,21 @@
     } else {
       for (const pr of executive.potential_blockers) {
         const card = el('div', undefined, 'exec-item-card exec-card-blocker');
+        const header = el('div', undefined, 'exec-card-header');
         const linkNode = el('a', '#' + pr.number + ' ' + pr.title, 'exec-pr-link');
         linkNode.href = pr.url;
         linkNode.target = '_blank';
         linkNode.rel = 'noopener noreferrer';
+        header.append(linkNode);
+        if (pr.repository) {
+          header.append(el('span', pr.repository, 'code-pill exec-repo-pill'));
+        }
         const reasonsList = el('ul', undefined, 'exec-reasons-list');
         for (const r of pr.reasons) {
           reasonsList.append(el('li', r));
         }
         card.append(
-          linkNode,
+          header,
           el('p', 'Autor: @' + pr.author + ' · CI: ' + pr.ci_state + ' · Mergeable: ' + pr.mergeable_state, 'exec-pr-meta muted'),
           reasonsList
         );

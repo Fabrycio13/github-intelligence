@@ -268,10 +268,19 @@ def test_report_details_route_attaches_executive_payload():
                 "total_prs_observed": 1,
                 "merged_in_window_count": 1,
                 "open_awaiting_review_count": 0,
+                "open_drafts_count": 0,
                 "potential_blockers_count": 0,
             },
-            "merged_in_window": [{"number": 42, "title": "Test PR", "url": "https://github.com/owner/repo/pull/42"}],
+            "merged_in_window": [
+                {
+                    "number": 42,
+                    "title": "Test PR",
+                    "url": "https://github.com/owner/repo/pull/42",
+                    "repository": "owner/repo",
+                }
+            ],
             "open_awaiting_review": [],
+            "open_drafts": [],
             "potential_blockers": [],
             "participants": [],
             "limitations": [],
@@ -282,5 +291,8 @@ def test_report_details_route_attaches_executive_payload():
         data = res2.json()
         assert data["executive"]["available"] is True
         assert data["executive"]["summary"]["total_prs_observed"] == 1
+        assert data["executive"]["summary"]["open_drafts_count"] == 0
+        assert data["executive"]["open_drafts"] == []
         assert data["executive"]["merged_in_window"][0]["number"] == 42
+        assert data["executive"]["merged_in_window"][0]["repository"] == "owner/repo"
         assert "content" in data

@@ -208,3 +208,109 @@ test('drawer displays unavailable notice when executive summary is not available
   assert.equal(app.get('#drawer-copy-exec-btn').disabled, true);
   assert.match(app.get('#drawer-executive').children[0].children[1].textContent, /Snapshots estruturados não disponíveis/);
 });
+
+test('drawer renders repository pill for each PR card and segregates open drafts', async () => {
+  const app = await ready();
+  openCard(app);
+  await tick();
+  const execReport = {
+    ...report(10),
+    executive: {
+      available: true,
+      summary: {
+        total_prs_observed: 4,
+        merged_in_window_count: 1,
+        open_awaiting_review_count: 1,
+        open_drafts_count: 1,
+        potential_blockers_count: 1,
+      },
+      merged_in_window: [
+        {
+          number: 101,
+          title: 'FE Login',
+          url: 'https://github.com/owner/portal-frontend/pull/101',
+          repository: 'owner/portal-frontend',
+          author: 'dev1',
+          merged_by: 'lead',
+          merged_at: '2026-11-03T20:00:00Z',
+          base_branch: 'main',
+        },
+      ],
+      open_awaiting_review: [
+        {
+          number: 102,
+          title: 'BE Auth',
+          url: 'https://github.com/owner/portal-backend/pull/102',
+          repository: 'owner/portal-backend',
+          author: 'dev2',
+          is_draft: false,
+          approvals_observed: 0,
+          expected_approvals: 2,
+          review_state: 'no_approvals',
+        },
+      ],
+      open_drafts: [
+        {
+          number: 103,
+          title: 'Integration Kafka',
+          url: 'https://github.com/owner/portal-integracoes/pull/103',
+          repository: 'owner/portal-integracoes',
+          author: 'dev3',
+          is_draft: true,
+          approvals_observed: 0,
+          expected_approvals: 1,
+          review_state: 'no_approvals',
+        },
+      ],
+      potential_blockers: [
+        {
+          number: 104,
+          title: 'FE Checkout',
+          url: 'https://github.com/owner/portal-frontend/pull/104',
+          repository: 'owner/portal-frontend',
+          author: 'dev1',
+          ci_state: 'failing',
+          mergeable_state: 'blocked',
+          review_state: 'approved',
+          reasons: [
+            'Verificações automatizadas (CI) com falha (status: failing).',
+            'Mesclagem bloqueada ou restrita no GitHub (mergeable_state: blocked).',
+          ],
+        },
+      ],
+      participants: [{login: 'dev1', roles: ['author'], pr_numbers: [101, 104]}],
+      limitations: ['Merge não prova deploy.'],
+      markdown_text: '# Exec Summary',
+    },
+  };
+  await app.respond('/' + id(10) + '/details', execReport);
+
+  const exec = app.get('#drawer-executive');
+  assert.equal(exec.hidden, false);
+
+  // Check metrics cards
+  const metricVals = exec.children[0].children.map(c => c.children[0].textContent);
+  assert.deepEqual(metricVals, ['1', '1', '1', '4']);
+
+  // Check repository pills
+  const pills = [];
+  function findPills(node) {
+    if ((node.className || '').includes('exec-repo-pill')) pills.push(node.textContent);
+    for (const child of node.children || []) findPills(child);
+  }
+  findPills(exec);
+  assert.equal(pills.includes('owner/portal-frontend'), true);
+  assert.equal(pills.includes('owner/portal-backend'), true);
+  assert.equal(pills.includes('owner/portal-integracoes'), true);
+
+  // Check draft subsection
+  const draftSub = exec.children[2].children.find(c => (c.className || '').includes('exec-subsection'));
+  assert.equal(Boolean(draftSub), true);
+  assert.match(draftSub.children[0].textContent, /Em preparação \/ rascunho \(1\)/);
+
+  // Check blocker reason text
+  const blockerCard = exec.children[3].children[1];
+  const reasons = (blockerCard.children || []).find(c => (c.className || '').includes('exec-reasons-list'));
+  const reasonsText = (reasons?.children || []).map(li => li.textContent).join(' ');
+  assert.match(reasonsText, /Mesclagem bloqueada ou restrita no GitHub/);
+});

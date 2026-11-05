@@ -233,6 +233,12 @@ def _record_participant(
     participants_map[key]["pr_numbers"].add(pr_number)
 
 
+def _exec_link(number: int, title: str, url: str) -> str:
+    safe_title = html.escape(str(title)).replace("[", "&#91;").replace("]", "&#93;")
+    safe_url = _url(url) or url
+    return f"[#{number} {safe_title}]({safe_url})"
+
+
 def render_executive_markdown(summary: dict[str, Any]) -> str:
     window = summary.get("window", {})
     since = window.get("since", "—")
@@ -255,8 +261,9 @@ def render_executive_markdown(summary: dict[str, Any]) -> str:
         lines.append("_Nenhuma PR integrada observada dentro desta janela temporal._")
     else:
         for pr in merged:
+            link = _exec_link(pr['number'], pr['title'], pr['url'])
             lines.append(
-                f"- [#{pr['number']} {pr['title']}]({pr['url']}) "
+                f"- {link} · {pr['repository']} "
                 f"(autor: @{pr['author']}, merge por: @{pr['merged_by']} em {pr['merged_at']})"
             )
     lines.append("")
@@ -267,13 +274,24 @@ def render_executive_markdown(summary: dict[str, Any]) -> str:
         lines.append("_Nenhuma PR aberta aguardando aprovações._")
     else:
         for pr in awaiting:
-            draft_label = " [Rascunho]" if pr.get("is_draft") else ""
+            link = _exec_link(pr['number'], pr['title'], pr['url'])
             lines.append(
-                f"- [#{pr['number']} {pr['title']}]({pr['url']}){draft_label} "
+                f"- {link} · {pr['repository']} "
                 f"(autor: @{pr['author']} · aprovações observadas: "
                 f"{pr['approvals_observed']}/{pr['expected_approvals']})"
             )
     lines.append("")
+
+    drafts = summary.get("open_drafts", [])
+    if drafts:
+        lines.append(f"### Em preparação / rascunho ({len(drafts)})")
+        for pr in drafts:
+            link = _exec_link(pr['number'], pr['title'], pr['url'])
+            lines.append(
+                f"- {link} · {pr['repository']} "
+                f"(autor: @{pr['author']} · em preparação)"
+            )
+        lines.append("")
 
     blockers = summary.get("potential_blockers", [])
     lines.append(f"## 3. Possíveis bloqueios técnicos ({len(blockers)})")
@@ -282,8 +300,10 @@ def render_executive_markdown(summary: dict[str, Any]) -> str:
     else:
         for pr in blockers:
             reasons = "; ".join(pr.get("reasons", [])) or "Pendência observada."
+            link = _exec_link(pr['number'], pr['title'], pr['url'])
             lines.append(
-                f"- [#{pr['number']} {pr['title']}]({pr['url']}) (autor: @{pr['author']}): {reasons}"
+                f"- {link} · {pr['repository']} "
+                f"(autor: @{pr['author']}): {reasons}"
             )
     lines.append("")
 
@@ -327,6 +347,7 @@ def build_executive_summary(
 
     merged_in_window: list[dict[str, Any]] = []
     open_awaiting_review: list[dict[str, Any]] = []
+    open_drafts: list[dict[str, Any]] = []
     potential_blockers: list[dict[str, Any]] = []
     participants_map: dict[str, dict[str, Any]] = {}
 
@@ -348,21 +369,25 @@ def build_executive_summary(
                 "base_branch": (pull.get("base") or {}).get("ref") or "desconhecido",
             })
 
-        # 2. Open awaiting review: open or draft PRs requiring reviews
+        # 2. Open awaiting review and drafts in preparation
         if assessment.lifecycle in {"open", "draft"}:
-            if assessment.review in {"no_approvals", "awaiting_approvals"}:
-                open_awaiting_review.append({
-                    "number": assessment.number,
-                    "title": assessment.title,
-                    "url": assessment.url,
-                    "repository": snap.repository,
-                    "created_at": pull.get("created_at"),
-                    "author": (pull.get("user") or {}).get("login") or "desconhecido",
-                    "is_draft": bool(pull.get("draft")),
-                    "approvals_observed": assessment.approvals_observed,
-                    "expected_approvals": cfg.required_approvals,
-                    "review_state": assessment.review,
-                })
+            is_draft = bool(pull.get("draft") or assessment.lifecycle == "draft")
+            item_data = {
+                "number": assessment.number,
+                "title": assessment.title,
+                "url": assessment.url,
+                "repository": snap.repository,
+                "created_at": pull.get("created_at"),
+                "author": (pull.get("user") or {}).get("login") or "desconhecido",
+                "is_draft": is_draft,
+                "approvals_observed": assessment.approvals_observed,
+                "expected_approvals": cfg.required_approvals,
+                "review_state": assessment.review,
+            }
+            if is_draft:
+                open_drafts.append(item_data)
+            elif assessment.review in {"no_approvals", "awaiting_approvals"}:
+                open_awaiting_review.append(item_data)
 
         # 3. Potential blockers: active open/draft PRs with failing CI, conflicts or changes requested
         if assessment.lifecycle in {"open", "draft"}:
@@ -375,13 +400,21 @@ def build_executive_summary(
             if has_ci_failure or has_conflict or has_changes_requested:
                 reasons: list[str] = []
                 if has_ci_failure:
-                    reasons.append("Checks ou status de CI falhando no head SHA.")
+                    reasons.append("Verificações automatizadas (CI) com falha (status: failing).")
                 if pull.get("mergeable") is False:
-                    reasons.append("Conflitos de mesclagem identificados (mergeable: false).")
-                elif pull.get("mergeable_state") in {"blocked", "dirty"}:
-                    reasons.append(f"Estado de mesclagem bloqueado observado: {pull.get('mergeable_state')}.")
+                    reasons.append("Conflito de mesclagem com a branch base (mergeable: false).")
+                elif pull.get("mergeable_state") == "dirty":
+                    reasons.append(
+                        "Branch em conflito com a base impedindo mesclagem direta (mergeable_state: dirty)."
+                    )
+                elif pull.get("mergeable_state") == "blocked":
+                    reasons.append(
+                        "Mesclagem bloqueada ou restrita no GitHub (mergeable_state: blocked)."
+                    )
+                elif pull.get("mergeable_state") not in {None, "clean", "unstable", "has_hooks"}:
+                    reasons.append(f"Estado de mesclagem observado: {pull.get('mergeable_state')}.")
                 if has_changes_requested:
-                    reasons.append("Revisão com alterações solicitadas (CHANGES_REQUESTED).")
+                    reasons.append("Revisão com alterações solicitadas pelo revisor (CHANGES_REQUESTED).")
                 potential_blockers.append({
                     "number": assessment.number,
                     "title": assessment.title,
@@ -417,6 +450,7 @@ def build_executive_summary(
 
     merged_in_window.sort(key=lambda item: (str(item.get("merged_at", "")), item["number"]), reverse=True)
     open_awaiting_review.sort(key=lambda item: item["number"], reverse=True)
+    open_drafts.sort(key=lambda item: item["number"], reverse=True)
     potential_blockers.sort(key=lambda item: item["number"], reverse=True)
 
     participants = [
@@ -467,10 +501,12 @@ def build_executive_summary(
             "total_prs_observed": len(snapshots),
             "merged_in_window_count": len(merged_in_window),
             "open_awaiting_review_count": len(open_awaiting_review),
+            "open_drafts_count": len(open_drafts),
             "potential_blockers_count": len(potential_blockers),
         },
         "merged_in_window": merged_in_window,
         "open_awaiting_review": open_awaiting_review,
+        "open_drafts": open_drafts,
         "potential_blockers": potential_blockers,
         "participants": participants,
         "limitations": limitations,
