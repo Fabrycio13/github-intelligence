@@ -288,9 +288,9 @@ def render_executive_markdown(summary: dict[str, Any]) -> str:
     lines.append("")
 
     participants = summary.get("participants", [])
-    lines.append(f"## 4. Participação observada em PRs ({len(participants)})")
+    lines.append(f"## 4. Participantes observados nas PRs coletadas ({len(participants)})")
     if not participants:
-        lines.append("_Nenhuma atividade de participantes registrada._")
+        lines.append("_Nenhum participante observado nas PRs coletadas._")
     else:
         for p in participants:
             roles = ", ".join(p.get("roles", []))
@@ -442,8 +442,9 @@ def build_executive_summary(
             "de produtividade individual nem dedicação do colaborador."
         ),
         (
-            "Amostra restrita às PRs observadas; colaboradores que atuaram "
-            "em outras frentes não são identificados."
+            "Amostra restrita às PRs observadas; participantes identificados "
+            "refletem pessoas observadas nas PRs coletadas, sem comprovação "
+            "de atividade no período temporal nem ausência total de atividade no GitHub."
         ),
     ]
     has_partial = not report_complete or any(

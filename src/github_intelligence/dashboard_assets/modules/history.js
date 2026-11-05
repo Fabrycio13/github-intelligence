@@ -237,9 +237,9 @@
     container.append(sec3);
 
     const sec4 = el('div', undefined, 'exec-section');
-    sec4.append(el('h4', '4. Participação observada em PRs (' + executive.participants.length + ')', 'exec-section-title'));
+    sec4.append(el('h4', '4. Participantes observados nas PRs coletadas (' + executive.participants.length + ')', 'exec-section-title'));
     if (executive.participants.length === 0) {
-      sec4.append(el('p', 'Nenhuma atividade de participantes registrada.', 'muted'));
+      sec4.append(el('p', 'Nenhum participante observado nas PRs coletadas.', 'muted'));
     } else {
       const pList = el('ul', undefined, 'exec-participants-list');
       for (const p of executive.participants) {

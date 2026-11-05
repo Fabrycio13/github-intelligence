@@ -349,3 +349,42 @@ def test_executive_summary_partial_limitations_and_sanitization() -> None:
     )
     summary = build_executive_summary([pr_inconsistent], WINDOW, report_complete=False)
     assert any("parcial" in lim.lower() for lim in summary["limitations"])
+
+
+def test_executive_summary_empty_snapshots_has_zeroed_counts_and_safe_caveat() -> None:
+    from github_intelligence.report import build_executive_summary
+
+    summary = build_executive_summary([], WINDOW, report_complete=True)
+    assert summary["available"] is True
+    assert summary["report_complete"] is True
+    assert summary["summary"]["total_prs_observed"] == 0
+    assert summary["summary"]["merged_in_window_count"] == 0
+    assert summary["summary"]["open_awaiting_review_count"] == 0
+    assert summary["summary"]["potential_blockers_count"] == 0
+    assert summary["merged_in_window"] == []
+    assert summary["open_awaiting_review"] == []
+    assert summary["potential_blockers"] == []
+    assert summary["participants"] == []
+    assert any("ausência total de atividade no GitHub" in lim for lim in summary["limitations"])
+    assert "## 4. Participantes observados nas PRs coletadas (0)" in summary["markdown_text"]
+    assert "_Nenhum participante observado nas PRs coletadas._" in summary["markdown_text"]
+
+
+def test_executive_summary_participants_semantics_in_markdown() -> None:
+    from github_intelligence.report import build_executive_summary
+
+    pr_item = pr(
+        pull={
+            "number": 20,
+            "user": {"login": "Alice"},
+            "merged": True,
+            "merged_at": "2026-10-18T10:00:00Z",
+            "merged_by": {"login": "Bob"},
+        },
+    )
+    summary = build_executive_summary([pr_item], WINDOW)
+    md = summary["markdown_text"]
+    assert "## 4. Participantes observados nas PRs coletadas (2)" in md
+    assert "@Alice" in md
+    assert "@Bob" in md
+    assert any("participantes identificados" in lim.lower() for lim in summary["limitations"])

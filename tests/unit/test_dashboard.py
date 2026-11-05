@@ -100,7 +100,7 @@ def test_modular_frontend_assets_served_with_strict_allowlist_and_security_heade
             assert expected_namespace in response.text
 
             # Accepts ?v= cache-busting query parameter
-            assert client.get(f"{url_path}?v=15").status_code == 200
+            assert client.get(f"{url_path}?v=16").status_code == 200
 
             # Rejects unexpected query parameters with 400
             assert client.get(f"{url_path}?bad=1").status_code == 400
