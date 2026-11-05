@@ -616,3 +616,107 @@ def test_executive_summary_malicious_title_and_unknown_blocker_state() -> None:
     md = summary["markdown_text"]
     assert "· org/frontend" in md
     assert "<script>" not in md
+
+
+def test_exec_link_url_validation_and_markdown_safety() -> None:
+    from github_intelligence.report import _exec_link
+
+    # Valid GitHub HTTPS URL
+    valid = _exec_link(10, "feat: valid", "https://github.com/org/repo/pull/10")
+    assert valid == "[#10 feat: valid](https://github.com/org/repo/pull/10)"
+
+    # Malicious javascript: URL -> Plain text, no link
+    js_url = _exec_link(11, "malicious js", "javascript:alert(1)")
+    assert js_url == "#11 malicious js"
+    assert "javascript" not in js_url
+    assert "[" not in js_url and "](" not in js_url
+
+    # Malicious data: URI -> Plain text, no link
+    data_url = _exec_link(12, "data payload", "data:text/html;base64,PHNjcmlwdD4=")
+    assert data_url == "#12 data payload"
+    assert "data:" not in data_url
+
+    # Non-permitted domain -> Plain text, no link
+    evil_domain = _exec_link(13, "phishing", "https://evil.com/org/repo/pull/13")
+    assert evil_domain == "#13 phishing"
+    assert "evil.com" not in evil_domain
+
+    # URL with credentials -> Plain text, no link
+    creds_url = _exec_link(14, "creds", "https://user:pass@github.com/org/repo/pull/14")
+    assert creds_url == "#14 creds"
+    assert "user:pass" not in creds_url
+
+    # Escapes brackets and HTML tags in title while keeping link
+    escaped = _exec_link(15, "fix [core]: support <T> & 'quotes'", "https://github.com/org/repo/pull/15")
+    assert escaped == "[#15 fix &#91;core&#93;: support &lt;T&gt; &amp; &#x27;quotes&#x27;](https://github.com/org/repo/pull/15)"
+
+
+def test_executive_summary_blockers_draft_and_unknown_states_not_spurious_blockers() -> None:
+    from github_intelligence.report import build_executive_summary
+
+    # Draft with failing CI: in blockers, but ONLY with CI reason (no fake "draft" merge blocker)
+    pr_draft_ci = pr(
+        pull={
+            "number": 40,
+            "state": "open",
+            "draft": True,
+            "title": "Draft with CI fail",
+            "mergeable": True,
+            "mergeable_state": "draft",
+        },
+        statuses=[{"state": "failure", "context": "ci/tests", "sha": "head"}],
+    )
+    summary_ci = build_executive_summary([pr_draft_ci], WINDOW)
+    assert len(summary_ci["potential_blockers"]) == 1
+    assert len(summary_ci["open_drafts"]) == 1
+    assert len(summary_ci["open_awaiting_review"]) == 0
+    blocker_ci = summary_ci["potential_blockers"][0]
+    assert blocker_ci["reasons"] == ["Verificações automatizadas (CI) com falha (status: failing)."]
+    assert not any("draft" in r for r in blocker_ci["reasons"])
+
+    # Draft without failures: NOT in blockers
+    pr_draft_clean = pr(
+        pull={
+            "number": 41,
+            "state": "open",
+            "draft": True,
+            "title": "Draft Clean",
+            "mergeable": True,
+            "mergeable_state": "draft",
+        },
+    )
+    summary_clean = build_executive_summary([pr_draft_clean], WINDOW)
+    assert len(summary_clean["potential_blockers"]) == 0
+    assert len(summary_clean["open_drafts"]) == 1
+
+    # Unknown mergeable_state with clean CI: NOT in blockers
+    pr_unknown_clean = pr(
+        pull={
+            "number": 42,
+            "state": "open",
+            "draft": False,
+            "title": "Computing Mergeability",
+            "mergeable": None,
+            "mergeable_state": "unknown",
+        },
+    )
+    summary_unknown = build_executive_summary([pr_unknown_clean], WINDOW)
+    assert len(summary_unknown["potential_blockers"]) == 0
+
+    # Unknown mergeable_state with failing CI: in blockers, but ONLY with CI reason
+    pr_unknown_ci = pr(
+        pull={
+            "number": 43,
+            "state": "open",
+            "draft": False,
+            "title": "Unknown with CI fail",
+            "mergeable": None,
+            "mergeable_state": "unknown",
+        },
+        statuses=[{"state": "failure", "context": "ci/tests", "sha": "head"}],
+    )
+    summary_unknown_ci = build_executive_summary([pr_unknown_ci], WINDOW)
+    assert len(summary_unknown_ci["potential_blockers"]) == 1
+    blocker_u = summary_unknown_ci["potential_blockers"][0]
+    assert blocker_u["reasons"] == ["Verificações automatizadas (CI) com falha (status: failing)."]
+    assert not any("unknown" in r for r in blocker_u["reasons"])

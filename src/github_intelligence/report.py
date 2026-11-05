@@ -235,7 +235,9 @@ def _record_participant(
 
 def _exec_link(number: int, title: str, url: str) -> str:
     safe_title = html.escape(str(title)).replace("[", "&#91;").replace("]", "&#93;")
-    safe_url = _url(url) or url
+    safe_url = _url(url)
+    if not safe_url:
+        return f"#{number} {safe_title}"
     return f"[#{number} {safe_title}]({safe_url})"
 
 
@@ -411,8 +413,6 @@ def build_executive_summary(
                     reasons.append(
                         "Mesclagem bloqueada ou restrita no GitHub (mergeable_state: blocked)."
                     )
-                elif pull.get("mergeable_state") not in {None, "clean", "unstable", "has_hooks"}:
-                    reasons.append(f"Estado de mesclagem observado: {pull.get('mergeable_state')}.")
                 if has_changes_requested:
                     reasons.append("Revisão com alterações solicitadas pelo revisor (CHANGES_REQUESTED).")
                 potential_blockers.append({
