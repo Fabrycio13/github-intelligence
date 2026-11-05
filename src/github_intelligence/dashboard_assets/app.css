@@ -1631,3 +1631,34 @@ footer {
   padding: 14px 16px;
   color: var(--text-muted);
 }
+
+.exec-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.exec-repo-pill {
+  font-size: 11px;
+}
+
+.exec-card-draft {
+  opacity: 0.9;
+  border-style: dashed;
+}
+
+.exec-subsection {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.exec-subsection-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 4px 0 2px 2px;
+}

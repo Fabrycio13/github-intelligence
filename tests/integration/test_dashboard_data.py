@@ -528,6 +528,8 @@ def test_get_report_executive_with_persisted_snapshots_and_project_isolation(pre
     assert exec_result["summary"]["total_prs_observed"] == 2
     assert exec_result["summary"]["merged_in_window_count"] == 1
     assert exec_result["summary"]["open_awaiting_review_count"] == 1
+    assert exec_result["summary"]["open_drafts_count"] == 0
+    assert exec_result["open_drafts"] == []
     assert exec_result["merged_in_window"][0]["number"] == 1
     assert exec_result["open_awaiting_review"][0]["number"] == 2
     logins = [part["login"] for part in exec_result["participants"]]
@@ -562,9 +564,11 @@ def test_get_report_executive_case_a_complete_zero_prs(prepared_db):
     assert result["summary"]["total_prs_observed"] == 0
     assert result["summary"]["merged_in_window_count"] == 0
     assert result["summary"]["open_awaiting_review_count"] == 0
+    assert result["summary"]["open_drafts_count"] == 0
     assert result["summary"]["potential_blockers_count"] == 0
     assert result["merged_in_window"] == []
     assert result["open_awaiting_review"] == []
+    assert result["open_drafts"] == []
     assert result["potential_blockers"] == []
     assert result["participants"] == []
     assert any("ausência total de atividade no GitHub" in lim for lim in result["limitations"])

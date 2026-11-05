@@ -65,6 +65,12 @@ def test_dashboard_lists_and_opens_report_without_triggering_collection():
         assert response.status_code == 200
         assert "GitHub Intelligence" in response.text
         assert "Content-Security-Policy" in response.headers
+        # ADR 0003: asset version v=17
+        assert 'href="/app.css?v=17"' in response.text
+        assert 'src="/modules/loader.js?v=17"' in response.text
+        assert 'src="/modules/sidebar.js?v=17"' in response.text
+        assert 'src="/modules/history.js?v=17"' in response.text
+        assert 'src="/app.js?v=17"' in response.text
         listing = client.get("/api/repositories").json()
         assert listing["repositories"][0]["full_name"] == "owner/repo"
         report = client.get(f"/api/reports/{REPORT}").json()
@@ -99,8 +105,8 @@ def test_modular_frontend_assets_served_with_strict_allowlist_and_security_heade
             assert "Content-Security-Policy" in response.headers
             assert expected_namespace in response.text
 
-            # Accepts ?v= cache-busting query parameter
-            assert client.get(f"{url_path}?v=16").status_code == 200
+            # Accepts ?v= cache-busting query parameter (ADR 0003 v=17)
+            assert client.get(f"{url_path}?v=17").status_code == 200
 
             # Rejects unexpected query parameters with 400
             assert client.get(f"{url_path}?bad=1").status_code == 400
@@ -268,10 +274,19 @@ def test_report_details_route_attaches_executive_payload():
                 "total_prs_observed": 1,
                 "merged_in_window_count": 1,
                 "open_awaiting_review_count": 0,
+                "open_drafts_count": 0,
                 "potential_blockers_count": 0,
             },
-            "merged_in_window": [{"number": 42, "title": "Test PR", "url": "https://github.com/owner/repo/pull/42"}],
+            "merged_in_window": [
+                {
+                    "number": 42,
+                    "title": "Test PR",
+                    "url": "https://github.com/owner/repo/pull/42",
+                    "repository": "owner/repo",
+                }
+            ],
             "open_awaiting_review": [],
+            "open_drafts": [],
             "potential_blockers": [],
             "participants": [],
             "limitations": [],
@@ -282,5 +297,8 @@ def test_report_details_route_attaches_executive_payload():
         data = res2.json()
         assert data["executive"]["available"] is True
         assert data["executive"]["summary"]["total_prs_observed"] == 1
+        assert data["executive"]["summary"]["open_drafts_count"] == 0
+        assert data["executive"]["open_drafts"] == []
         assert data["executive"]["merged_in_window"][0]["number"] == 42
+        assert data["executive"]["merged_in_window"][0]["repository"] == "owner/repo"
         assert "content" in data
